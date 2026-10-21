@@ -42,6 +42,9 @@
   const SUYA_BITE_BURST = 82;
   const BUU_SCALE = 1.25;
   const BUU_GROW_SEC = 0.45;
+  /** 进球慢动作：真实时长 + 物理时间倍率 */
+  const GOAL_SLOW_SEC = 0.55;
+  const GOAL_SLOW_SCALE = 0.2;
 
   let scale = 1;
   let offsetX = 0;
@@ -81,6 +84,86 @@
     return !!(img && img.complete && img.naturalWidth > 0);
   }
 
+  function avatarFailed(defId) {
+    const img = avatarImgs[defId];
+    return !!(img && img.complete && !(img.naturalWidth > 0));
+  }
+
+  /**
+   * 等待头像 + 场外围图就绪（供启动加载页）。
+   * @param {{ onProgress?: (done:number, total:number, id?:string) => void, timeoutMs?: number }} [opts]
+   */
+  function waitAssets(opts) {
+    const onProgress = opts && opts.onProgress;
+    const timeoutMs = (opts && opts.timeoutMs) || 20000;
+    preloadAvatars();
+
+    const list = (window.FOUNCY_PLAYERS || []).filter((p) => p && p.id);
+    const total = list.length + 1; // + pitch art
+    const t0 = performance.now();
+
+    return new Promise((resolve) => {
+      let pitchArtFailed = false;
+      let settled = false;
+
+      function pitchOk() {
+        return (
+          pitchArtReady ||
+          (pitchArt.complete && pitchArt.naturalWidth > 0) ||
+          pitchArtFailed ||
+          (pitchArt.complete && !(pitchArt.naturalWidth > 0))
+        );
+      }
+
+      function report(lastId) {
+        let done = 0;
+        for (const p of list) {
+          if (avatarReady(p.id) || avatarFailed(p.id)) done += 1;
+        }
+        if (pitchOk()) done += 1;
+        if (onProgress) onProgress(done, total, lastId);
+        return done;
+      }
+
+      function finish() {
+        if (settled) return;
+        settled = true;
+        report();
+        resolve();
+      }
+
+      if (!pitchArt.complete) {
+        pitchArt.addEventListener("load", () => report(), { once: true });
+        pitchArt.addEventListener(
+          "error",
+          () => {
+            pitchArtFailed = true;
+            report();
+          },
+          { once: true }
+        );
+      }
+
+      function tick() {
+        const done = report();
+        if (done >= total || performance.now() - t0 > timeoutMs) {
+          finish();
+          return;
+        }
+        requestAnimationFrame(tick);
+      }
+
+      for (const p of list) {
+        const img = avatarImgs[p.id];
+        if (!img) continue;
+        if (img.complete) continue;
+        img.addEventListener("load", () => report(p.id), { once: true });
+        img.addEventListener("error", () => report(p.id), { once: true });
+      }
+      tick();
+    });
+  }
+
   preloadAvatars();
 
   /** 球场 + 球门槽外轮廓（屏幕坐标），用于扣洞 / 描边 */
@@ -113,7 +196,11 @@
 
   const state = {
     running: false,
-    phase: "select", // select | aim | sim | goal | over
+    phase: "select", // select | aim | sim | goalSlow | goal | over
+    /** 进球慢动作剩余真实秒数 */
+    goalSlowLeft: 0,
+    /** 进球白闪 0~1 */
+    goalFlash: 0,
     turn: "A",
     scoreA: 0,
     scoreB: 0,
@@ -172,7 +259,13 @@
     localTeam: null,
     /** 联机事件回调 (evt) => void —— shot / arm / restart */
     onNetEvent: null,
+    /** 对方出手因本机仍在仿真/进球动画而暂存 */
+    pendingRemoteShots: [],
+    /** 已应用过的远程出手 seq，防重放 */
+    appliedRemoteSeqs: {},
   };
+
+  let remoteShotFlushing = false;
 
   let rafId = 0;
   let bound = false;
@@ -225,6 +318,17 @@
     const tint = team === "A" ? "rgba(158,192,255,0.95)" : "rgba(255,176,168,0.95)";
     spawnSparks(wx, wy, 26, { color: tint, speed: 58, life: 0.72 });
     spawnSparks(wx, wy, 14, { color: "rgba(200,245,66,0.92)", speed: 42, life: 0.55 });
+  }
+
+  function beginGoalSlowMo(scorer) {
+    const bb = ball();
+    const L = PITCH.lengthM;
+    if (bb) {
+      spawnGoalBurst(bb.x, scorer === "A" ? Math.min(bb.y, 0) : Math.max(bb.y, L), scorer);
+    }
+    state.goalSlowLeft = GOAL_SLOW_SEC;
+    state.goalFlash = 1;
+    setPhase("goalSlow");
   }
 
   function updateFx(dt) {
@@ -1068,7 +1172,33 @@
         console.error("onPhaseChange failed", err);
       }
     }
-    if (phase === "select") queueAiTurn();
+    if (phase === "select") {
+      flushPendingRemoteShots();
+      queueAiTurn();
+    }
+  }
+
+  function canApplyRemoteShotNow() {
+    return (
+      state.running &&
+      (state.phase === "select" || state.phase === "aim") &&
+      !state.simulating
+    );
+  }
+
+  function flushPendingRemoteShots() {
+    if (remoteShotFlushing) return;
+    if (!state.pendingRemoteShots || !state.pendingRemoteShots.length) return;
+    if (!canApplyRemoteShotNow()) return;
+    remoteShotFlushing = true;
+    try {
+      while (state.pendingRemoteShots.length && canApplyRemoteShotNow()) {
+        const msg = state.pendingRemoteShots.shift();
+        applyRemoteShotNow(msg);
+      }
+    } finally {
+      remoteShotFlushing = false;
+    }
   }
 
   function syncUI() {
@@ -1101,6 +1231,7 @@
           ? `${who} · ${state.selected.skill.name}`
           : `${who} · ${aimExtra}`,
       sim: "结算中…",
+      goalSlow: "进球！",
       goal: "进球！",
       over: "比赛结束",
     };
@@ -1108,7 +1239,7 @@
 
     let pillTeam = "neutral";
     if (state.phase === "select" || state.phase === "aim") pillTeam = state.turn;
-    else if (state.phase === "goal") pillTeam = state.turn;
+    else if (state.phase === "goal" || state.phase === "goalSlow") pillTeam = state.turn;
     el.phase.dataset.team = pillTeam;
     syncEnergyDock();
   }
@@ -1280,6 +1411,14 @@
     el.overlayMsg.textContent = msg;
     el.overlay.classList.remove("hidden");
     state.pendingOverlay = onOk;
+    // 对方已经出手在排队：别卡在弹窗上，立刻进入下一回合并消化
+    if (state.pendingRemoteShots && state.pendingRemoteShots.length) {
+      requestAnimationFrame(() => {
+        if (state.pendingRemoteShots && state.pendingRemoteShots.length) {
+          hideOverlay();
+        }
+      });
+    }
   }
 
   function hideOverlay() {
@@ -1546,11 +1685,8 @@
       ctx.shooter;
 
     if (scorer) {
-      const bb = ball();
-      if (bb) {
-        const L = PITCH.lengthM;
-        spawnGoalBurst(bb.x, scorer === "A" ? Math.min(bb.y, 0) : Math.max(bb.y, L), scorer);
-      }
+      state.goalSlowLeft = 0;
+      state.goalFlash = 0;
       if (scorer === "A") state.scoreA += 1;
       else state.scoreB += 1;
       tickStatusOnTurnEnd(endingTeam);
@@ -1700,14 +1836,49 @@
     setPhase("sim");
   }
 
-  /** 应用对方发来的一击（双方各自本地仿真） */
+  /**
+   * 应用对方发来的一击。
+   * 若本机还在仿真 / 进球慢放 / 弹窗阶段，先入队，等进入 select 再执行，
+   * 避免「一方已出手、另一方直接丢弃」导致永久不同步。
+   */
   function applyRemoteShot(msg) {
     if (!msg || !state.running) return false;
-    if (state.phase !== "select" && state.phase !== "aim") return false;
+    if (!canApplyRemoteShotNow()) {
+      // 同 seq 去重，避免 ACK 重发叠两枪
+      if (
+        msg.seq != null &&
+        state.pendingRemoteShots.some((m) => m && m.seq === msg.seq)
+      ) {
+        return true;
+      }
+      state.pendingRemoteShots.push(msg);
+      // 进球弹窗开着：立刻关掉进入下一回合，消化对方已发出的击球
+      if (
+        (state.phase === "goal" || state.phase === "over") &&
+        el.overlay &&
+        !el.overlay.classList.contains("hidden")
+      ) {
+        hideOverlay();
+      }
+      // 慢放阶段：加速结束，避免对方等太久
+      if (state.phase === "goalSlow") {
+        state.goalSlowLeft = 0;
+      }
+      return true;
+    }
+    return applyRemoteShotNow(msg);
+  }
+
+  function applyRemoteShotNow(msg) {
+    if (!msg || !state.running) return false;
+    if (msg.seq != null && state.appliedRemoteSeqs[msg.seq]) return true;
     const p = state.bodies.find((b) => !b.isBall && b.id === msg.playerId);
-    if (!p || p.team !== state.turn) return false;
+    if (!p) return false;
+    // 回合已切走则丢弃（陈旧包）；仍在对方回合则应用
+    if (p.team !== state.turn) return false;
     if (p.injuredTurns > 0) return false;
 
+    if (msg.seq != null) state.appliedRemoteSeqs[msg.seq] = true;
     cancelAim();
     state.selected = p;
     if (msg.skillArmed && p.skill && p.energy >= 1) p.skillArmed = true;
@@ -1721,7 +1892,9 @@
     state.curveRadius =
       typeof msg.curveRadius === "number" ? msg.curveRadius : CURVE_R_MAX;
     state.dragging = false;
-    setPhase("aim");
+    // 直接进入仿真，避免 setPhase("aim") 再套一层触发 flush 重入
+    state.phase = "aim";
+    syncUI();
     shoot({ fromRemote: true });
     return true;
   }
@@ -1789,6 +1962,8 @@
     state.primaryPointerId = null;
     state.shotCtx = null;
     state.strollBonus = false;
+    state.goalSlowLeft = 0;
+    state.goalFlash = 0;
     resetCurveInput();
     state.keys.a = false;
     state.keys.d = false;
@@ -2746,12 +2921,21 @@
     }
   }
 
+  function drawGoalFlash() {
+    if (!state.goalFlash || state.goalFlash <= 0) return;
+    ctx.save();
+    ctx.fillStyle = `rgba(255,255,255,${0.55 * state.goalFlash})`;
+    ctx.fillRect(0, 0, viewW, viewH);
+    ctx.restore();
+  }
+
   function render() {
     ctx.clearRect(0, 0, viewW, viewH);
     drawPitch();
     drawBodies();
     drawFx();
     drawAimAssist();
+    drawGoalFlash();
   }
 
   let last = performance.now();
@@ -2785,13 +2969,37 @@
         state.shotCtx &&
         state.shotCtx.suyaBitePending &&
         !state.shotCtx.suyaBiteDone;
-      if (scored || (allSlowEnough() && !suyaWaiting)) {
+      if (scored) {
         acc = 0;
-        if (!scored) freezeAll();
+        beginGoalSlowMo(scored);
+      } else if (allSlowEnough() && !suyaWaiting) {
+        acc = 0;
+        freezeAll();
+        afterSim();
+      }
+    } else if (state.phase === "goalSlow") {
+      while (acc >= STEP) {
+        const slowStep = STEP * GOAL_SLOW_SCALE;
+        integrate(slowStep);
+        collideBodies();
+        collideWalls();
+        tickSuyaBite();
+        state.goalSlowLeft -= STEP;
+        state.goalFlash = Math.max(0, state.goalFlash - STEP * 1.8);
+        acc -= STEP;
+        if (state.goalSlowLeft <= 0) break;
+      }
+      if (state.goalSlowLeft <= 0) {
+        acc = 0;
+        state.goalFlash = 0;
+        freezeAll();
         afterSim();
       }
     } else {
       acc = 0;
+      if (state.goalFlash > 0) {
+        state.goalFlash = Math.max(0, state.goalFlash - dt * 2.5);
+      }
     }
 
     render();
@@ -2966,6 +3174,9 @@
         : null;
     state.onNetEvent =
       config && typeof config.onNetEvent === "function" ? config.onNetEvent : null;
+    state.pendingRemoteShots = [];
+    state.appliedRemoteSeqs = {};
+    remoteShotFlushing = false;
 
     // 联机：本机方在下；人机：人类方在下；热座：蓝方在下
     if (state.localTeam) state.viewBottomTeam = state.localTeam;
@@ -3004,6 +3215,8 @@
     start,
     stop,
     evaluateShot,
+    waitAssets,
+    avatarReady,
     applyRemoteShot,
     applyRemoteArm,
     applyRemoteRestart,

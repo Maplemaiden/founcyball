@@ -303,6 +303,24 @@
     /** 对手阵容 id[] */
     oppLine: padLine(window.FOUNCY_DEFAULT_LINEUP_B),
     matchStarted: false,
+    /** @type {{ team: "A"|"B", text: string, ts: number, mine: boolean }[]} */
+    chatLog: [],
+    chatUnread: 0,
+    /** 待对方 ACK 的出手，丢包时重发 */
+    pendingShotAcks: /** @type {Map<number, { payload: object, tries: number, timer: number }>} */ (
+      new Map()
+    ),
+  };
+
+  const chatUi = {
+    fab: document.getElementById("btnMatchChat"),
+    badge: document.getElementById("matchChatBadge"),
+    sheet: document.getElementById("matchChatSheet"),
+    backdrop: document.getElementById("matchChatBackdrop"),
+    close: document.getElementById("matchChatClose"),
+    log: document.getElementById("matchChatLog"),
+    form: document.getElementById("matchChatForm"),
+    input: document.getElementById("matchChatInput"),
   };
 
   const drag = {
@@ -380,6 +398,52 @@
     online.net.send({ t: "ready", ready: !!online.readyMe });
   }
 
+  function clearPendingShotAcks() {
+    online.pendingShotAcks.forEach((entry) => {
+      if (entry.timer) clearTimeout(entry.timer);
+    });
+    online.pendingShotAcks.clear();
+  }
+
+  function ackRemoteShot(seq) {
+    if (seq == null || !online.net) return;
+    online.net.send({ t: "shot-ack", seq });
+  }
+
+  function trackShotForAck(payload) {
+    const seq = payload.seq;
+    if (seq == null) return;
+    const prev = online.pendingShotAcks.get(seq);
+    if (prev && prev.timer) clearTimeout(prev.timer);
+    const entry = { payload, tries: 0, timer: 0 };
+    const schedule = () => {
+      entry.timer = setTimeout(() => {
+        if (!online.pendingShotAcks.has(seq)) return;
+        if (!online.net || !online.net.isConnected()) {
+          schedule();
+          return;
+        }
+        entry.tries += 1;
+        if (entry.tries > 12) {
+          online.pendingShotAcks.delete(seq);
+          console.warn("[online] shot ack timeout", seq);
+          return;
+        }
+        online.net.send(entry.payload);
+        schedule();
+      }, 700);
+    };
+    online.pendingShotAcks.set(seq, entry);
+    schedule();
+  }
+
+  function onShotAck(seq) {
+    const entry = online.pendingShotAcks.get(seq);
+    if (!entry) return;
+    if (entry.timer) clearTimeout(entry.timer);
+    online.pendingShotAcks.delete(seq);
+  }
+
   function onOnlineMessage(msg) {
     if (!msg || !msg.t) return;
     if (msg.t === "hello" || msg.t === "welcome") {
@@ -404,7 +468,13 @@
       return;
     }
     if (msg.t === "shot" && window.FouncyBall) {
+      // 先 ACK，再应用（应用可能入队等待本机动画结束）
+      if (msg.seq != null) ackRemoteShot(msg.seq);
       window.FouncyBall.applyRemoteShot(msg);
+      return;
+    }
+    if (msg.t === "shot-ack") {
+      onShotAck(msg.seq);
       return;
     }
     if (msg.t === "arm" && window.FouncyBall) {
@@ -413,7 +483,129 @@
     }
     if (msg.t === "restart" && window.FouncyBall) {
       window.FouncyBall.applyRemoteRestart();
+      return;
     }
+    if (msg.t === "chat") {
+      const text = String(msg.text || "").trim().slice(0, 120);
+      const team = msg.team === "B" ? "B" : "A";
+      if (!text) return;
+      pushChatMessage({
+        team,
+        text,
+        ts: msg.ts || Date.now(),
+        mine: team === myOnlineTeam(),
+      });
+    }
+  }
+
+  function isChatOpen() {
+    return !!(chatUi.sheet && chatUi.sheet.classList.contains("open"));
+  }
+
+  function clearChatLog() {
+    online.chatLog = [];
+    online.chatUnread = 0;
+    renderChatLog();
+    syncChatBadge();
+  }
+
+  function syncChatBadge() {
+    if (!chatUi.badge) return;
+    const n = online.chatUnread;
+    chatUi.badge.textContent = n > 99 ? "99+" : String(n);
+    chatUi.badge.classList.toggle("hidden", n <= 0);
+  }
+
+  function setChatFabVisible(on) {
+    if (chatUi.fab) chatUi.fab.classList.toggle("hidden", !on);
+    if (!on) closeChatSheet();
+  }
+
+  function openChatSheet() {
+    if (!chatUi.sheet) return;
+    chatUi.sheet.classList.remove("hidden");
+    chatUi.sheet.setAttribute("aria-hidden", "false");
+    requestAnimationFrame(() => {
+      chatUi.sheet.classList.add("open");
+    });
+    online.chatUnread = 0;
+    syncChatBadge();
+    renderChatLog();
+    setTimeout(() => {
+      if (chatUi.input) chatUi.input.focus();
+    }, 280);
+  }
+
+  function closeChatSheet() {
+    if (!chatUi.sheet) return;
+    chatUi.sheet.classList.remove("open");
+    chatUi.sheet.setAttribute("aria-hidden", "true");
+    if (chatUi.input) chatUi.input.blur();
+    setTimeout(() => {
+      if (chatUi.sheet && !chatUi.sheet.classList.contains("open")) {
+        chatUi.sheet.classList.add("hidden");
+      }
+    }, 280);
+  }
+
+  function renderChatLog() {
+    if (!chatUi.log) return;
+    chatUi.log.innerHTML = "";
+    if (!online.chatLog.length) {
+      const empty = document.createElement("div");
+      empty.className = "match-chat-empty";
+      empty.textContent = "还没有消息，打个招呼吧";
+      chatUi.log.appendChild(empty);
+      return;
+    }
+    online.chatLog.forEach((m) => {
+      const row = document.createElement("div");
+      row.className =
+        "match-chat-row " +
+        (m.mine ? "me" : "opp") +
+        " team-" +
+        (m.team === "B" ? "b" : "a");
+      const meta = document.createElement("div");
+      meta.className = "match-chat-meta";
+      meta.textContent = m.mine
+        ? "你"
+        : m.team === "A"
+          ? "蓝方"
+          : "红方";
+      const bubble = document.createElement("div");
+      bubble.className = "match-chat-bubble";
+      bubble.textContent = m.text;
+      row.appendChild(meta);
+      row.appendChild(bubble);
+      chatUi.log.appendChild(row);
+    });
+    chatUi.log.scrollTop = chatUi.log.scrollHeight;
+  }
+
+  function pushChatMessage(entry) {
+    online.chatLog.push(entry);
+    if (online.chatLog.length > 200) online.chatLog.shift();
+    if (!entry.mine && !isChatOpen()) {
+      online.chatUnread += 1;
+      syncChatBadge();
+    }
+    if (isChatOpen() || entry.mine) renderChatLog();
+  }
+
+  function sendChatMessage() {
+    if (!chatUi.input) return;
+    const text = String(chatUi.input.value || "").trim().slice(0, 120);
+    if (!text) return;
+    if (!online.matchStarted || !online.net || !online.net.isConnected()) {
+      alert("当前无法发送（未联机或已断开）");
+      return;
+    }
+    const team = myOnlineTeam();
+    const ts = Date.now();
+    online.net.send({ t: "chat", text, team, ts });
+    pushChatMessage({ team, text, ts, mine: true });
+    chatUi.input.value = "";
+    chatUi.input.focus();
   }
 
   function syncOnlineUi() {
@@ -459,6 +651,7 @@
   }
 
   function leaveOnlineRoom() {
+    clearPendingShotAcks();
     if (online.net) {
       try {
         online.net.send({ t: "leave" });
@@ -473,6 +666,8 @@
     online.readyOpp = false;
     online.oppLine = padLine(window.FOUNCY_DEFAULT_LINEUP_B);
     online.matchStarted = false;
+    clearChatLog();
+    setChatFabVisible(false);
     if (ui.onlineCodeInput) ui.onlineCodeInput.value = "";
     syncOnlineUi();
   }
@@ -502,7 +697,9 @@
     const code = (ui.onlineCodeInput && ui.onlineCodeInput.value) || "";
     const net = ensureOnlineNet();
     if (!net) return;
-    if (ui.onlineHint) ui.onlineHint.textContent = "正在加入…";
+    if (ui.onlineHint) {
+      ui.onlineHint.textContent = "正在加入（信令不稳时会自动重试）…";
+    }
     try {
       const info = await net.joinRoom(code);
       online.role = info.role;
@@ -531,7 +728,10 @@
     if (ui.labelA) ui.labelA.textContent = localTeam === "A" ? "你" : "对手";
     if (ui.labelB) ui.labelB.textContent = localTeam === "B" ? "你" : "对手";
     online.matchStarted = true;
+    clearPendingShotAcks();
+    clearChatLog();
     show("match");
+    setChatFabVisible(true);
     requestAnimationFrame(() => {
       window.FouncyBall.start({
         teamA: resolveLine(teamAIds),
@@ -543,17 +743,20 @@
         trainingLayout: null,
         onMatchOver: null,
         onNetEvent: (evt) => {
-          if (!online.net || !online.net.isConnected()) return;
+          if (!online.net) return;
           if (evt.type === "shot") {
-            online.net.send({
+            const payload = {
               t: "shot",
+              seq: online.net.nextSeq(),
               playerId: evt.playerId,
               aim: evt.aim,
               power: evt.power,
               curveSign: evt.curveSign,
               curveRadius: evt.curveRadius,
               skillArmed: evt.skillArmed,
-            });
+            };
+            online.net.send(payload);
+            trackShotForAck(payload);
           } else if (evt.type === "arm") {
             online.net.send({
               t: "arm",
@@ -805,6 +1008,7 @@
       ui.btnExit.textContent = "退出";
     }
 
+    setChatFabVisible(false);
     show("match");
     requestAnimationFrame(() => {
       window.FouncyBall.start({
@@ -1293,6 +1497,7 @@
     }
     if (ui.labelA) ui.labelA.textContent = "蓝";
     if (ui.labelB) ui.labelB.textContent = isRanked() ? "电脑" : "红";
+    setChatFabVisible(false);
     show("match");
     requestAnimationFrame(() => {
       window.FouncyBall.start({
@@ -1512,6 +1717,8 @@
     }
     if (window.FouncyBall) window.FouncyBall.stop();
     online.matchStarted = false;
+    setChatFabVisible(false);
+    closeChatSheet();
     if (isOnline() && online.role) {
       show("online");
       syncOnlineUi();
@@ -1519,6 +1726,26 @@
     }
     show(lobbyReturn === "match" ? "home" : lobbyReturn || "home");
   });
+
+  if (chatUi.fab) {
+    chatUi.fab.addEventListener("click", () => {
+      if (isChatOpen()) closeChatSheet();
+      else openChatSheet();
+    });
+  }
+  if (chatUi.backdrop) chatUi.backdrop.addEventListener("click", () => closeChatSheet());
+  if (chatUi.close) chatUi.close.addEventListener("click", () => closeChatSheet());
+  if (chatUi.form) {
+    chatUi.form.addEventListener("submit", (e) => {
+      e.preventDefault();
+      sendChatMessage();
+    });
+  }
+  // 输入时别让对局吃掉按键
+  if (chatUi.input) {
+    chatUi.input.addEventListener("keydown", (e) => e.stopPropagation());
+    chatUi.input.addEventListener("keyup", (e) => e.stopPropagation());
+  }
 
   const tutorOkBtn = document.getElementById("tutorOk");
   if (tutorOkBtn) {
@@ -1533,12 +1760,112 @@
   renderTrain();
   syncTutorDockLock();
 
-  // 新手未完成：直接切入当前简单关
-  if (!isTutorialDone()) {
-    const next = getNextTutorialLevel();
-    if (next) startTrainingLevel(next, { fromTutorial: true });
-    else show("train");
-  } else {
-    show("home");
+  function buildBootFaces() {
+    const box = document.getElementById("bootFaces");
+    if (!box) return;
+    box.innerHTML = "";
+    (window.FOUNCY_PLAYERS || []).forEach((p) => {
+      if (!p || !p.id) return;
+      const el = document.createElement("div");
+      el.className = "boot-face";
+      el.dataset.id = p.id;
+      el.title = p.name || p.id;
+      const img = document.createElement("img");
+      img.alt = p.name || "";
+      img.decoding = "async";
+      img.src = p.avatar || `assets/avatars/${p.id}.png`;
+      el.appendChild(img);
+      box.appendChild(el);
+    });
   }
+
+  function setBootProgress(done, total, lastId) {
+    const pct = total > 0 ? Math.min(100, Math.round((done / total) * 100)) : 100;
+    const bar = document.getElementById("bootBar");
+    const label = document.getElementById("bootPct");
+    if (bar) bar.style.width = `${pct}%`;
+    if (label) label.textContent = `${pct}%`;
+    if (lastId) {
+      const face = document.querySelector(`#bootFaces .boot-face[data-id="${lastId}"]`);
+      if (face) face.classList.add("on");
+    }
+    // 按已完成数点亮（含场地图那一项时仍按球员 id 点亮）
+    document.querySelectorAll("#bootFaces .boot-face").forEach((face) => {
+      const id = face.dataset.id;
+      if (
+        window.FouncyBall &&
+        typeof window.FouncyBall.avatarReady === "function" &&
+        window.FouncyBall.avatarReady(id)
+      ) {
+        face.classList.add("on");
+      }
+    });
+  }
+
+  function hideBootSplash() {
+    const splash = document.getElementById("bootSplash");
+    if (!splash) return;
+    splash.classList.add("done");
+    splash.setAttribute("aria-busy", "false");
+    setTimeout(() => splash.remove(), 400);
+  }
+
+  function enterAppAfterBoot() {
+    hideBootSplash();
+    // 新手未完成：直接切入当前简单关
+    if (!isTutorialDone()) {
+      const next = getNextTutorialLevel();
+      if (next) startTrainingLevel(next, { fromTutorial: true });
+      else show("train");
+    } else {
+      show("home");
+    }
+  }
+
+  async function runBootSplash() {
+    buildBootFaces();
+    const started = performance.now();
+    const minMs = 650;
+
+    if (window.FouncyBall && typeof window.FouncyBall.waitAssets === "function") {
+      await window.FouncyBall.waitAssets({
+        onProgress: setBootProgress,
+        timeoutMs: 20000,
+      });
+    } else {
+      // 兜底：自行预加载头像
+      const list = window.FOUNCY_PLAYERS || [];
+      let done = 0;
+      const total = Math.max(1, list.length);
+      await Promise.all(
+        list.map(
+          (p) =>
+            new Promise((resolve) => {
+              const img = new Image();
+              const finish = () => {
+                done += 1;
+                setBootProgress(done, total, p.id);
+                resolve();
+              };
+              img.onload = finish;
+              img.onerror = finish;
+              img.src = p.avatar || `assets/avatars/${p.id}.png`;
+            })
+        )
+      );
+    }
+
+    // 确保脸圈都亮起
+    document.querySelectorAll("#bootFaces .boot-face").forEach((f) => f.classList.add("on"));
+    setBootProgress(1, 1);
+
+    const wait = Math.max(0, minMs - (performance.now() - started));
+    if (wait > 0) await new Promise((r) => setTimeout(r, wait));
+    enterAppAfterBoot();
+  }
+
+  // 先藏大厅，等资源好再进（避免闪一下主页）
+  if (ui.lobby) ui.lobby.classList.add("hidden");
+  if (ui.screens.match) ui.screens.match.classList.add("hidden");
+  runBootSplash();
 })();
