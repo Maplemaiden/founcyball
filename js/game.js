@@ -201,6 +201,8 @@
     goalSlowLeft: 0,
     /** 进球白闪 0~1 */
     goalFlash: 0,
+    /** 已判定的得分方（慢放前锁定，避免球被顶出后不算） */
+    pendingScorer: null,
     turn: "A",
     scoreA: 0,
     scoreB: 0,
@@ -224,6 +226,8 @@
     primaryPointerId: null,
     curvePointerId: null,
     curveFingerClient: null,
+    /** 副指按下时的 client 原点；弧度按相对侧滑，避免一点就拧满 */
+    curveTouchOrigin: null,
     curveFromTouch: false,
     /** null | "A" | "B" —— 该方由电脑操控 */
     aiTeam: null,
@@ -242,6 +246,12 @@
     strollBonus: false,
     /** 训练关自定义站位；null 则用默认开球位 */
     trainingLayout: null,
+    /**
+     * 开球站位（编队自定义）。按队伍存绝对世界坐标：
+     * { A?: { kick:[{x,y}×3], receive:[…] }, B?: {…} }
+     * kick=该方开球（先手），receive=对方开球（后手）
+     */
+    kickoffLayouts: null,
     /** 训练关卡 id（有则视为训练模式） */
     trainingId: null,
     /** 胜负球数（训练可改为 1） */
@@ -320,7 +330,29 @@
     spawnSparks(wx, wy, 14, { color: "rgba(200,245,66,0.92)", speed: 42, life: 0.55 });
   }
 
+  /** 慢放期间把球钳在已进球门内，防止门网弹回后位置判定丢失 */
+  function pinBallInGoal(scorer) {
+    const b = ball();
+    if (!b || !scorer) return;
+    const L = PITCH.lengthM;
+    const D = PITCH.goalDepthM;
+    const { gx0, gx1 } = goalXRange();
+    b.x = Math.max(gx0 + b.r + 0.05, Math.min(gx1 - b.r - 0.05, b.x));
+    if (scorer === "A") {
+      // 上门：整球须在 y+r < 0
+      b.y = Math.min(b.y, -b.r - 0.08);
+      b.y = Math.max(b.y, -D + b.r + 0.05);
+    } else {
+      // 下门：整球须在 y-r > L
+      b.y = Math.max(b.y, L + b.r + 0.08);
+      b.y = Math.min(b.y, L + D - b.r - 0.05);
+    }
+  }
+
   function beginGoalSlowMo(scorer) {
+    // 先锁定得分，再播慢动作（结算用 pendingScorer，不再重新 checkGoal）
+    state.pendingScorer = scorer;
+    pinBallInGoal(scorer);
     const bb = ball();
     const L = PITCH.lengthM;
     if (bb) {
@@ -998,12 +1030,40 @@
     };
   }
 
-  function resetPositions(preserveMeta = false) {
+  function defaultKickoffSpots(team) {
     const W = PITCH.widthM;
     const L = PITCH.lengthM;
     const gap = PLAYER_R * 2.4;
     const back = PLAYER_R * 0.5;
     const xs = [W * 0.22, W * 0.5, W * 0.78];
+    if (team === "A") {
+      const aY = L * 0.74 + back;
+      return xs.map((x, i) => ({
+        x,
+        y: i === 1 ? aY - gap * 0.55 : aY,
+      }));
+    }
+    const bY = L * 0.26 - back;
+    return xs.map((x, i) => ({
+      x,
+      y: i === 1 ? bY + gap * 0.55 : bY,
+    }));
+  }
+
+  function spotsForKickoff(team, kickOffTeam) {
+    const side = state.kickoffLayouts && state.kickoffLayouts[team];
+    const key = team === kickOffTeam ? "kick" : "receive";
+    const custom = side && Array.isArray(side[key]) ? side[key] : null;
+    if (custom && custom.length >= 3) {
+      return custom.slice(0, 3).map((s) => ({ x: s.x, y: s.y }));
+    }
+    return defaultKickoffSpots(team);
+  }
+
+  function resetPositions(preserveMeta = false, kickOffTeam = null) {
+    const W = PITCH.widthM;
+    const L = PITCH.lengthM;
+    const whoKicks = kickOffTeam === "A" || kickOffTeam === "B" ? kickOffTeam : state.turn || "A";
     const meta = {};
     if (preserveMeta) {
       for (const b of state.bodies) {
@@ -1023,19 +1083,19 @@
     }
 
     const bodies = [];
-    const aY = L * 0.74 + back;
+    const spotsA = spotsForKickoff("A", whoKicks);
     state.lineupA.forEach((def, i) => {
-      const y = i === 1 ? aY - gap * 0.55 : aY;
-      const p = makePlayerBody(def, "A", i, xs[i], y);
+      const s = spotsA[i] || defaultKickoffSpots("A")[i];
+      const p = makePlayerBody(def, "A", i, s.x, s.y);
       if (meta[p.id]) Object.assign(p, meta[p.id]);
       refreshPlayerMods(p);
       bodies.push(p);
     });
 
-    const bY = L * 0.26 - back;
+    const spotsB = spotsForKickoff("B", whoKicks);
     state.lineupB.forEach((def, i) => {
-      const y = i === 1 ? bY + gap * 0.55 : bY;
-      const p = makePlayerBody(def, "B", i, xs[i], y);
+      const s = spotsB[i] || defaultKickoffSpots("B")[i];
+      const p = makePlayerBody(def, "B", i, s.x, s.y);
       if (meta[p.id]) Object.assign(p, meta[p.id]);
       refreshPlayerMods(p);
       bodies.push(p);
@@ -1276,6 +1336,7 @@
     state.keyCurveHold = 0;
     state.curvePointerId = null;
     state.curveFingerClient = null;
+    state.curveTouchOrigin = null;
     state.curveFromTouch = false;
   }
 
@@ -1327,7 +1388,12 @@
     return effectiveStats(p).curve > 0;
   }
 
-  /** 副指世界坐标 → 尽量让圆弧贴近该点；拉得越偏半径越小 */
+  /**
+   * 副指拧弧（手机友好）：
+   * 以副指按下点为原点，沿「瞄准方向的左侧」侧滑控制弯度。
+   * - 回到原点附近 → 取消弧线（易回退）
+   * - 侧滑约 130px 才到满弯（ease-in，不会一点就拧满）
+   */
   function updateCurveFromTouch(clientX, clientY) {
     if (!state.selected || state.power < 0.02) return;
     if (!playerCanCurve(state.selected)) {
@@ -1337,33 +1403,48 @@
       return;
     }
     state.curveFingerClient = { x: clientX, y: clientY };
-    const Q = screenToWorld(clientX, clientY);
+    if (!state.curveTouchOrigin) {
+      state.curveTouchOrigin = { x: clientX, y: clientY };
+    }
+
     const P = state.selected;
     const aim = normalize(state.aim.x, state.aim.y);
     const left = viewLeftNormal(aim);
-    const toQ = { x: Q.x - P.x, y: Q.y - P.y };
-    const sideDot = toQ.x * left.x + toQ.y * left.y;
-    if (Math.abs(sideDot) < 0.35) {
+    // 屏幕空间「左」法线（与视角一致）
+    const o = worldToScreen(P.x, P.y);
+    const l = worldToScreen(P.x + left.x, P.y + left.y);
+    const sLeft = normalize(l.x - o.x, l.y - o.y);
+
+    const dx = clientX - state.curveTouchOrigin.x;
+    const dy = clientY - state.curveTouchOrigin.y;
+    const latPx = dx * sLeft.x + dy * sLeft.y;
+
+    // 死区：滑回原点附近即可清掉弧线
+    const DEAD_PX = 28;
+    // 满弯行程：刻意偏长，避免误触拧满
+    const FULL_PX = 130;
+
+    if (Math.abs(latPx) < DEAD_PX) {
       state.curveSign = 0;
+      state.curveRadius = CURVE_R_MAX;
       state.curveFromTouch = true;
       syncUI();
       return;
     }
-    // 目标在瞄准方向左侧 → 左旋(-1)
-    const sign = sideDot > 0 ? -1 : 1;
-    const inward = sign < 0 ? left : { x: -left.x, y: -left.y };
-    const dot = toQ.x * inward.x + toQ.y * inward.y;
-    const len2 = toQ.x * toQ.x + toQ.y * toQ.y;
-    let R = CURVE_R_MAX;
-    if (dot > 0.25) {
-      // 过点 P、切向 aim、尽量过 Q 的圆半径
-      R = len2 / (2 * dot);
-    } else {
-      const lat = Math.abs(sideDot);
-      R = CURVE_R_MAX - (lat / 36) * (CURVE_R_MAX - CURVE_R_MIN);
-    }
+
+    // 向瞄准左侧滑 → 左旋(-1)，与旧逻辑一致
+    const sign = latPx > 0 ? -1 : 1;
+    const mag = Math.min(1, (Math.abs(latPx) - DEAD_PX) / (FULL_PX - DEAD_PX));
+    // ease-in：前半段弯得慢，后半段才接近满弯
+    const eased = mag * mag;
     const { rMin } = selectedCurveLimits();
+    let R = CURVE_R_MAX + (rMin - CURVE_R_MAX) * eased;
     R = Math.max(rMin, Math.min(CURVE_R_MAX, R));
+
+    // 同侧轻平滑，换侧立刻跟手
+    if (state.curveSign === sign && state.curveSign !== 0) {
+      R = state.curveRadius * 0.55 + R * 0.45;
+    }
     state.curveSign = sign;
     state.curveRadius = R;
     state.curveFromTouch = true;
@@ -1672,7 +1753,9 @@
   function afterSim() {
     const ctx = state.shotCtx;
     const endingTeam = state.turn;
-    const scorer = checkGoal();
+    // 慢放已判定过则用锁定结果；否则当场再检
+    const scorer = state.pendingScorer || checkGoal();
+    state.pendingScorer = null;
     const ownGoal = isOwnGoal(scorer, endingTeam, ctx);
 
     // 梅老板：闲庭信步 —— 未碰到人/球则可再击（进球时不触发）
@@ -1687,6 +1770,7 @@
     if (scorer) {
       state.goalSlowLeft = 0;
       state.goalFlash = 0;
+      state.pendingScorer = null;
       if (scorer === "A") state.scoreA += 1;
       else state.scoreB += 1;
       tickStatusOnTurnEnd(endingTeam);
@@ -1732,7 +1816,7 @@
           "乌龙球!",
           `${teamName(endingTeam)}乌龙，${teamName(scorer)}得分！ ${state.scoreA} : ${state.scoreB}`,
           () => {
-            resetPositions(true);
+            resetPositions(true, kickOff);
             state.turn = kickOff;
             state.selected = null;
             syncEnergyDock();
@@ -1745,7 +1829,7 @@
           "GOAL!",
           `${teamName(scorer)}进球！ ${state.scoreA} : ${state.scoreB}`,
           () => {
-            resetPositions(true);
+            resetPositions(true, kickOff);
             state.turn = kickOff;
             state.selected = null;
             syncEnergyDock();
@@ -1964,6 +2048,7 @@
     state.strollBonus = false;
     state.goalSlowLeft = 0;
     state.goalFlash = 0;
+    state.pendingScorer = null;
     resetCurveInput();
     state.keys.a = false;
     state.keys.d = false;
@@ -2195,10 +2280,11 @@
 
     ctx.strokeStyle = "rgba(255,255,255,0.62)";
     ctx.lineWidth = Math.max(1.2, scale * 0.09);
-    const penW = 40.32;
-    const penD = 16.5;
-    const sixW = 18.32;
-    const sixD = 5.5;
+    const penW = PITCH.penaltyW || 40.32;
+    const penD = PITCH.penaltyD || 16.5;
+    const sixW = PITCH.sixYardW || 18.32;
+    const sixD = PITCH.sixYardD || 5.5;
+    const spotY = PITCH.penaltySpot || 11;
     const px0 = (W - penW) / 2;
     const sx0 = (W - sixW) / 2;
     strokeWorldQuad(px0, 0, px0 + penW, penD);
@@ -2207,7 +2293,7 @@
     strokeWorldQuad(sx0, L - sixD, sx0 + sixW, L);
 
     const spotR = Math.max(1.6, 0.22 * scale);
-    for (const sy of [11, L - 11]) {
+    for (const sy of [spotY, L - spotY]) {
       const sp = worldToScreen(W / 2, sy);
       ctx.beginPath();
       ctx.arc(sp.x, sp.y, spotR, 0, Math.PI * 2);
@@ -2984,6 +3070,8 @@
         collideBodies();
         collideWalls();
         tickSuyaBite();
+        // 每步钳回门内，避免门网反弹把「已进球」顶丢
+        pinBallInGoal(state.pendingScorer);
         state.goalSlowLeft -= STEP;
         state.goalFlash = Math.max(0, state.goalFlash - STEP * 1.8);
         acc -= STEP;
@@ -3025,8 +3113,13 @@
       ) {
         if (state.curveLocked) return;
         state.curvePointerId = e.pointerId;
+        state.curveTouchOrigin = { x: e.clientX, y: e.clientY };
         state.curveFromTouch = true;
-        updateCurveFromTouch(e.clientX, e.clientY);
+        // 按下瞬间不给弧度，等侧滑再拧
+        state.curveSign = 0;
+        state.curveRadius = CURVE_R_MAX;
+        state.curveFingerClient = { x: e.clientX, y: e.clientY };
+        syncUI();
         return;
       }
 
@@ -3069,10 +3162,11 @@
     if (!state.running || state.phase !== "aim") return;
     if (inputBlocked()) return;
 
-    // 副指抬起：保持当前弧线参数
+    // 副指抬起：保持当前弧线参数（原点清掉，方便下次重拧）
     if (state.curvePointerId != null && e.pointerId === state.curvePointerId) {
       state.curvePointerId = null;
       state.curveFingerClient = null;
+      state.curveTouchOrigin = null;
       // 仍标记为触控弧线，避免被键盘立刻覆盖；下一次按 A/D 时再让键盘接管
       return;
     }
@@ -3160,6 +3254,8 @@
 
     state.trainingLayout =
       config && config.trainingLayout ? config.trainingLayout : null;
+    state.kickoffLayouts =
+      config && config.kickoffLayouts ? config.kickoffLayouts : null;
     state.trainingId = (config && config.trainingId) || null;
     state.winScore =
       config && config.winScore > 0 ? config.winScore : WIN_SCORE;
