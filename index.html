@@ -1,0 +1,319 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <title>Founcyball</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Nunito:wght@700;800;900&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="css/style.css" />
+</head>
+<body>
+  <div id="app">
+    <div id="lobby" class="lobby">
+      <div class="lobby-body">
+        <!-- 主页：排位场景 -->
+        <section id="screen-home" class="screen screen-home">
+          <header class="home-top">
+            <div class="home-rank-chip">
+              <div class="home-rank-badge" id="rankBadge" aria-hidden="true"></div>
+              <div class="home-rank-text">
+                <div class="home-rank-name" id="rankName">城市联赛</div>
+                <div class="home-rank-cups" id="rankCups">1240 杯</div>
+              </div>
+            </div>
+            <span class="home-ver">v0.2</span>
+          </header>
+
+          <div class="home-stage" id="homeStage" data-arena="city">
+            <div class="home-sky" aria-hidden="true"></div>
+            <div class="home-stands" aria-hidden="true"></div>
+            <div class="home-pitch" aria-hidden="true"></div>
+            <div class="home-sun" aria-hidden="true"></div>
+
+            <div class="home-arena-plate">
+              <div class="home-arena-name" id="arenaName">城市球场</div>
+              <div class="home-arena-sub" id="arenaSub">排位赛场地</div>
+            </div>
+
+            <div class="home-cta">
+              <div class="mode-toggle" role="group" aria-label="对战模式">
+                <button type="button" class="mode-pill on" data-home-mode="ranked">排位</button>
+                <button type="button" class="mode-pill" data-home-mode="friendly">热座</button>
+                <button type="button" class="mode-pill" data-home-mode="online">联机</button>
+              </div>
+              <div class="diff-toggle" id="diffToggle" role="group" aria-label="电脑难度">
+                <button type="button" class="mode-pill on" data-ai-diff="normal">普通</button>
+                <button type="button" class="mode-pill" data-ai-diff="hard">极难</button>
+              </div>
+              <button type="button" id="btnBattle" class="btn-battle">开战</button>
+            </div>
+          </div>
+        </section>
+
+        <!-- 联机房间 -->
+        <section id="screen-online" class="screen screen-online hidden">
+          <header class="online-head">
+            <button type="button" id="btnOnlineBack" class="online-back">返回</button>
+            <h2>联机对战</h2>
+            <span class="bar-sp"></span>
+          </header>
+
+          <div class="online-body">
+            <p class="online-hint" id="onlineHint">开房间把房间号发给朋友，或输入房间号加入。</p>
+
+            <div class="online-actions" id="onlineActions">
+              <button type="button" id="btnCreateRoom" class="online-btn primary">创建房间</button>
+              <div class="online-join-row">
+                <input id="onlineCodeInput" class="online-code-input" type="text" maxlength="8" placeholder="房间号" autocomplete="off" spellcheck="false" />
+                <button type="button" id="btnJoinRoom" class="online-btn">加入</button>
+              </div>
+            </div>
+
+            <div class="online-room hidden" id="onlineRoom">
+              <div class="online-code-card">
+                <div class="online-code-label">房间号</div>
+                <div class="online-code" id="onlineCodeDisplay">------</div>
+                <button type="button" id="btnCopyCode" class="online-btn ghost">复制房间号</button>
+              </div>
+              <div class="online-status" id="onlineStatus">等待连接…</div>
+              <div class="online-sides">
+                <div class="online-side">
+                  <div class="online-side-title">你 · <span id="onlineMySide">蓝方</span></div>
+                  <div class="online-lineup" id="onlineMyLineup"></div>
+                  <label class="online-ready">
+                    <input type="checkbox" id="onlineReadyMe" />
+                    准备就绪
+                  </label>
+                </div>
+                <div class="online-side">
+                  <div class="online-side-title">对手 · <span id="onlineOppSide">红方</span></div>
+                  <div class="online-lineup" id="onlineOppLineup"></div>
+                  <div class="online-ready-tag" id="onlineReadyOpp">未准备</div>
+                </div>
+              </div>
+              <p class="online-edit-tip">阵容请先在「编队」页选好（联机时你只带自己的 3 人上场）。</p>
+              <button type="button" id="btnOnlineStart" class="online-btn primary online-start" disabled>开始对局</button>
+              <button type="button" id="btnLeaveRoom" class="online-btn ghost">离开房间</button>
+            </div>
+          </div>
+        </section>
+
+        <!-- 编队：上半场固定 / 下卡片滚屏（排位/友谊赛共用） -->
+        <section id="screen-roster" class="screen screen-roster hidden">
+          <header class="roster-head">
+            <h2 id="rosterTitle">编队</h2>
+          </header>
+
+          <div class="roster-pitch-panel" id="rosterPitchPanel">
+            <div class="roster-halfpitch" id="rosterPitch" aria-label="半场阵容">
+              <div class="halfpitch-mark box" aria-hidden="true"></div>
+              <div class="halfpitch-mark arc" aria-hidden="true"></div>
+              <div class="halfpitch-mark spot" aria-hidden="true"></div>
+              <div id="pitchSlots" class="pitch-slots"></div>
+            </div>
+          </div>
+
+          <button type="button" id="btnTogglePitch" class="pitch-fold-btn" aria-expanded="true">
+            收起球场
+          </button>
+
+          <div class="roster-bottom">
+            <div class="roster-scroll" id="rosterScroll">
+              <div class="roster-sec-label">已拥有</div>
+              <div id="ownedGrid" class="card-grid"></div>
+              <div class="roster-sec-label">未获得</div>
+              <div id="lockedGrid" class="card-grid"></div>
+            </div>
+          </div>
+        </section>
+
+        <!-- 训练：难度 + 关卡列表 -->
+        <section id="screen-train" class="screen screen-train hidden">
+          <header class="train-head">
+            <div>
+              <h2>训练</h2>
+              <p class="train-sub">极难对手 · 尽量一击破门</p>
+            </div>
+            <span class="train-chip" id="trainLevelCount">9 关</span>
+          </header>
+
+          <div class="train-banner" role="note">
+            <span class="train-banner-ico" aria-hidden="true"></span>
+            <p id="trainBlurb">对手使用极难电脑。尽量一击破门——拖到对方回合会被反打。</p>
+          </div>
+
+          <div class="train-diff" id="trainDiff" role="tablist" aria-label="训练难度"></div>
+
+          <div class="train-diff-desc" id="trainDiffDesc"></div>
+
+          <div class="train-scroll" id="trainScroll">
+            <div class="train-list" id="trainList"></div>
+          </div>
+        </section>
+
+        <!-- 占位 -->
+        <section id="screen-placeholder" class="screen hidden">
+          <header class="screen-bar">
+            <h2 id="placeholderTitle">占位</h2>
+            <span class="bar-sp"></span>
+          </header>
+          <div class="placeholder-card">
+            <p>功能建设中</p>
+            <p class="muted">后续在此接球探与商店。</p>
+          </div>
+        </section>
+      </div>
+
+      <!-- 常驻底栏：只负责切屏 -->
+      <nav id="appDock" class="app-dock" aria-label="主导航">
+        <button type="button" class="dock-item" data-nav="train">
+          <span class="dock-ico" aria-hidden="true">
+            <svg viewBox="0 0 24 24" width="22" height="22"><path fill="currentColor" d="M12 3l2.2 4.5 5 .7-3.6 3.5.9 5.2L12 14.8 7.5 17l.9-5.2L4.8 8.2l5-.7L12 3zm-7 16h14v2H5v-2z"/></svg>
+          </span>
+          <span class="dock-label">训练</span>
+        </button>
+        <button type="button" class="dock-item" data-nav="roster">
+          <span class="dock-ico" aria-hidden="true">
+            <svg viewBox="0 0 24 24" width="22" height="22"><path fill="currentColor" d="M12 12a4 4 0 1 0-4-4 4 4 0 0 0 4 4zm-7.5 8a5.5 5.5 0 0 1 11 0zm9-8a3.5 3.5 0 1 0-1-6.8 5.5 5.5 0 0 1 0 6.8A3.5 3.5 0 0 0 13.5 12zm1.5 8a5.4 5.4 0 0 1 2.2-4.3A5.5 5.5 0 0 1 22 20z"/></svg>
+          </span>
+          <span class="dock-label">编队</span>
+        </button>
+        <button type="button" class="dock-item dock-home on" data-nav="home">
+          <span class="dock-home-ring">
+            <span class="dock-home-dot" aria-hidden="true"></span>
+          </span>
+          <span class="dock-label">主页</span>
+        </button>
+        <button type="button" class="dock-item" data-nav="placeholder" data-title="球探">
+          <span class="dock-ico" aria-hidden="true">
+            <svg viewBox="0 0 24 24" width="22" height="22"><path fill="currentColor" d="M10 4a6 6 0 1 1 0 12A6 6 0 0 1 10 4zm0 2a4 4 0 1 0 0 8 4 4 0 0 0 0-8zm7.7 10.3 3 3-1.4 1.4-3-3 1.4-1.4z"/></svg>
+          </span>
+          <span class="dock-label">球探</span>
+        </button>
+        <button type="button" class="dock-item" data-nav="placeholder" data-title="商店">
+          <span class="dock-ico" aria-hidden="true">
+            <svg viewBox="0 0 24 24" width="22" height="22"><path fill="currentColor" d="M4 7l2-4h12l2 4v2H4V7zm0 3h16v10H4V10zm3 2v6h2v-6H7zm8 0v6h2v-6h-2z"/></svg>
+          </span>
+          <span class="dock-label">商店</span>
+        </button>
+      </nav>
+    </div>
+
+    <!-- 对局（无底栏） -->
+    <section id="screen-match" class="screen hidden match-screen">
+      <header id="hud" class="match-hud">
+        <button type="button" id="btnExitMatch" class="hud-btn" aria-label="退出">退出</button>
+        <div class="hud-center">
+          <div class="scoreboard">
+            <div class="side side-a">
+              <span class="chip" id="labelA">蓝</span>
+              <b id="scoreA">0</b>
+            </div>
+            <span class="score-sep">:</span>
+            <div class="side side-b">
+              <b id="scoreB">0</b>
+              <span class="chip" id="labelB">红</span>
+            </div>
+          </div>
+          <div id="phase" class="phase-pill" data-team="A">蓝方 · 选人</div>
+        </div>
+        <button id="btnRestart" type="button" class="hud-btn" aria-label="重开">重开</button>
+      </header>
+      <main id="stage">
+        <canvas id="game"></canvas>
+      </main>
+      <aside id="energyDock" class="energy-dock" aria-label="己方能量">
+        <div class="energy-dock-label">能量</div>
+        <div id="energyRows" class="energy-rows"></div>
+      </aside>
+    </section>
+
+    <div id="overlay" class="overlay hidden">
+      <div class="card" id="overlayCard">
+        <p id="overlayEyebrow" class="overlay-eyebrow">进球</p>
+        <h2 id="overlayTitle">GOAL!</h2>
+        <p id="overlayMsg"></p>
+        <button id="btnOverlay" type="button">继续</button>
+      </div>
+    </div>
+
+    <!-- 球员详情抽屉 -->
+    <div id="playerSheet" class="player-sheet hidden" aria-hidden="true">
+      <button type="button" class="player-sheet-backdrop" id="playerSheetBackdrop" aria-label="关闭"></button>
+      <div class="player-sheet-panel" role="dialog" aria-modal="true" aria-labelledby="psName">
+        <button type="button" class="player-sheet-close" id="playerSheetClose" aria-label="关闭">×</button>
+        <header class="ps-hero">
+          <div class="ps-avatar" id="psAvatar"></div>
+          <div class="ps-hero-text">
+            <div class="ps-name-row">
+              <h3 id="psName">苏牙</h3>
+              <span class="ps-lv" id="psLevel">Lv.9</span>
+            </div>
+            <div class="ps-role">
+              <span class="ps-role-ico ps-ico-lane" id="psLaneIco" aria-hidden="true"></span>
+              <span id="psRoleText">前锋</span>
+            </div>
+            <p class="ps-blurb" id="psBlurb"></p>
+          </div>
+        </header>
+
+        <section class="ps-stats" aria-label="四维属性">
+          <div class="ps-stat" data-stat="power">
+            <span class="ps-stat-ico ps-ico-power" aria-hidden="true"></span>
+            <span class="ps-stat-name">力量</span>
+            <div class="ps-stat-bar"><i id="psBarPower"></i></div>
+            <span class="ps-stat-num" id="psPower">86</span>
+          </div>
+          <div class="ps-stat" data-stat="curve">
+            <span class="ps-stat-ico ps-ico-curve" aria-hidden="true"></span>
+            <span class="ps-stat-name">弧线</span>
+            <div class="ps-stat-bar"><i id="psBarCurve"></i></div>
+            <span class="ps-stat-num" id="psCurve">68</span>
+          </div>
+          <div class="ps-stat" data-stat="grip">
+            <span class="ps-stat-ico ps-ico-grip" aria-hidden="true"></span>
+            <span class="ps-stat-name">控停</span>
+            <div class="ps-stat-bar"><i id="psBarGrip"></i></div>
+            <span class="ps-stat-num" id="psGrip">58</span>
+          </div>
+          <div class="ps-stat" data-stat="weight">
+            <span class="ps-stat-ico ps-ico-weight" aria-hidden="true"></span>
+            <span class="ps-stat-name">冲撞</span>
+            <div class="ps-stat-bar"><i id="psBarWeight"></i></div>
+            <span class="ps-stat-num" id="psWeight">78</span>
+          </div>
+        </section>
+
+        <section class="ps-skill" aria-label="技能">
+          <div class="ps-skill-head">
+            <span class="ps-skill-ico" id="psSkillIco" aria-hidden="true"></span>
+            <div>
+              <div class="ps-skill-label">主动技能</div>
+              <div class="ps-skill-name" id="psSkillName">禁区猎手</div>
+            </div>
+          </div>
+          <p class="ps-skill-desc" id="psSkillDesc"></p>
+        </section>
+
+        <section class="ps-demo" aria-label="技能演示">
+          <div class="ps-demo-label">技能演示</div>
+          <canvas id="psDemoCanvas" width="360" height="140"></canvas>
+        </section>
+      </div>
+    </div>
+  </div>
+
+  <script src="https://unpkg.com/peerjs@1.5.4/dist/peerjs.min.js"></script>
+  <script src="js/data/physics.js"></script>
+  <script src="js/data/players.js"></script>
+  <script src="js/data/ranks.js"></script>
+  <script src="js/data/training.js"></script>
+  <script src="js/ai.js"></script>
+  <script src="js/game.js"></script>
+  <script src="js/net.js"></script>
+  <script src="js/app.js"></script>
+</body>
+</html>

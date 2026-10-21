@@ -1,0 +1,701 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Founcyball 训练关卡编辑器</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Nunito:wght@700;800;900&display=swap" rel="stylesheet" />
+  <style>
+    :root {
+      --ink: #1e3a24;
+      --cream: #fff8e7;
+      --yellow: #ffd400;
+      --green: #2f8f48;
+      --blue: #3d7bfd;
+      --red: #e74c3c;
+    }
+    * { box-sizing: border-box; }
+    html, body {
+      margin: 0;
+      min-height: 100%;
+      font-family: "Nunito", "PingFang SC", "Microsoft YaHei", sans-serif;
+      background: linear-gradient(180deg, #e8f6ff 0%, #d8efc0 50%, #cfe8b0 100%);
+      color: var(--ink);
+    }
+    body {
+      display: grid;
+      grid-template-columns: minmax(280px, 360px) 1fr;
+      gap: 14px;
+      padding: 14px;
+      max-width: 1200px;
+      margin: 0 auto;
+    }
+    @media (max-width: 860px) {
+      body { grid-template-columns: 1fr; }
+    }
+    h1 {
+      margin: 0 0 4px;
+      font-size: 1.15rem;
+      font-weight: 900;
+    }
+    .sub {
+      margin: 0 0 12px;
+      font-size: 0.75rem;
+      font-weight: 800;
+      color: #4a7a55;
+    }
+    .panel {
+      background: rgba(255, 248, 231, 0.92);
+      border: 2.5px solid #2a1f14;
+      border-radius: 16px;
+      box-shadow: 0 3px 0 #2a1f14;
+      padding: 12px;
+    }
+    .panel + .panel { margin-top: 10px; }
+    label {
+      display: block;
+      font-size: 0.68rem;
+      font-weight: 800;
+      color: #4a7a55;
+      margin: 8px 0 4px;
+    }
+    input, select, textarea {
+      width: 100%;
+      border: 2px solid #2a1f14;
+      border-radius: 10px;
+      padding: 8px 10px;
+      font: inherit;
+      font-weight: 700;
+      background: #fff;
+      color: var(--ink);
+    }
+    textarea { min-height: 64px; resize: vertical; }
+    .row2 {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 8px;
+    }
+    .btns {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+      margin-top: 10px;
+    }
+    button {
+      border: 2.5px solid #2a1f14;
+      border-radius: 999px;
+      padding: 8px 12px;
+      font: inherit;
+      font-weight: 800;
+      font-size: 0.78rem;
+      background: var(--cream);
+      color: var(--ink);
+      cursor: pointer;
+      box-shadow: 0 2px 0 #2a1f14;
+    }
+    button:active { transform: translateY(1px); box-shadow: 0 1px 0 #2a1f14; }
+    button.primary {
+      background: linear-gradient(180deg, #ffe566, var(--yellow));
+    }
+    button.danger {
+      background: #ffb4a8;
+    }
+    button.on {
+      background: var(--ink);
+      color: var(--cream);
+    }
+    .piece-bar {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+    }
+    .piece-bar button {
+      min-width: 52px;
+    }
+    .piece-bar button[data-piece^="A"].on { background: var(--blue); color: #fff; }
+    .piece-bar button[data-piece^="B"].on { background: var(--red); color: #fff; }
+    .piece-bar button[data-piece="ball"].on { background: #fff; color: var(--ink); }
+    .warn {
+      margin-top: 8px;
+      font-size: 0.72rem;
+      font-weight: 800;
+      color: #8b2e1f;
+      min-height: 1.2em;
+    }
+    .ok {
+      color: #1e6b32;
+    }
+    .stage-wrap {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 10px;
+    }
+    .canvas-frame {
+      border: 3px solid #2a1f14;
+      border-radius: 16px;
+      overflow: hidden;
+      box-shadow: 0 4px 0 #2a1f14;
+      background: #1a3d22;
+      max-width: 100%;
+    }
+    canvas {
+      display: block;
+      width: min(360px, 92vw);
+      height: auto;
+      touch-action: none;
+      cursor: grab;
+    }
+    canvas.dragging { cursor: grabbing; }
+    .hint {
+      font-size: 0.72rem;
+      font-weight: 700;
+      color: #4a7a55;
+      text-align: center;
+      max-width: 360px;
+    }
+    pre {
+      margin: 8px 0 0;
+      max-height: 160px;
+      overflow: auto;
+      background: #15241a;
+      color: #c8f542;
+      border-radius: 10px;
+      padding: 10px;
+      font-size: 0.65rem;
+      line-height: 1.35;
+    }
+    .howto {
+      font-size: 0.72rem;
+      font-weight: 700;
+      line-height: 1.45;
+      color: #3d6b48;
+    }
+    .howto code {
+      background: rgba(42, 31, 20, 0.08);
+      padding: 1px 5px;
+      border-radius: 4px;
+      font-size: 0.68rem;
+    }
+  </style>
+</head>
+<body>
+  <aside>
+    <div class="panel">
+      <h1>训练关卡编辑器</h1>
+      <p class="sub">拖放摆位 · 导出后写入游戏</p>
+
+      <label>载入已有关卡</label>
+      <select id="loadLevel">
+        <option value="">— 新建空白 —</option>
+      </select>
+
+      <div class="row2">
+        <div>
+          <label>关卡 id</label>
+          <input id="lvId" value="n4" placeholder="n4" />
+        </div>
+        <div>
+          <label>难度</label>
+          <select id="lvDiff">
+            <option value="easy">简单 easy</option>
+            <option value="normal" selected>普通 normal</option>
+            <option value="hard">困难 hard</option>
+          </select>
+        </div>
+      </div>
+
+      <label>名称</label>
+      <input id="lvName" value="新关卡" />
+
+      <label>副标题</label>
+      <input id="lvSub" value="自定义" />
+
+      <label>提示 tip</label>
+      <textarea id="lvTip">在此写过关提示。</textarea>
+
+      <div class="row2">
+        <div>
+          <label>理想击数</label>
+          <input id="lvIdeal" type="number" min="1" max="5" value="1" />
+        </div>
+        <div>
+          <label>考点 focus</label>
+          <select id="lvFocus">
+            <option value="aim">aim 瞄准</option>
+            <option value="power">power 力度</option>
+            <option value="touch">touch 轻推</option>
+            <option value="curve">curve 弧线</option>
+            <option value="angle">angle 斜线</option>
+            <option value="bank">bank 借墙</option>
+            <option value="gap">gap 窄缝</option>
+            <option value="long">long 远射</option>
+            <option value="setup">setup 变向</option>
+          </select>
+        </div>
+      </div>
+    </div>
+
+    <div class="panel">
+      <label>蓝方阵容（你）</label>
+      <div class="row2" id="teamASelects"></div>
+      <label>红方阵容（电脑）</label>
+      <div class="row2" id="teamBSelects"></div>
+    </div>
+
+    <div class="panel">
+      <label>当前摆放 / 拖动对象</label>
+      <div class="piece-bar" id="pieceBar"></div>
+      <div class="warn" id="warn"></div>
+      <div class="btns">
+        <button type="button" id="btnReset">默认站位</button>
+        <button type="button" id="btnCopy">复制 JS</button>
+        <button type="button" class="primary" id="btnJson">下载 JSON</button>
+        <button type="button" class="primary" id="btnAdd">写入游戏…</button>
+      </div>
+      <p class="howto" style="margin-top:10px">
+        <b>写入步骤：</b>点「写入游戏」会下载 <code>level.json</code>，然后在项目根目录执行：
+        <br /><code>node tools/add-training-level.mjs tools/_last-level.json</code>
+        <br />脚本会插入 <code>js/data/training.js</code>，并可选跑可解性检测。
+      </p>
+    </div>
+
+    <div class="panel">
+      <label>预览代码</label>
+      <pre id="preview"></pre>
+    </div>
+  </aside>
+
+  <main class="stage-wrap">
+    <div class="canvas-frame">
+      <canvas id="pitch" width="340" height="525"></canvas>
+    </div>
+    <p class="hint">上门 = 蓝方进攻球门。拖动棋子摆位；点上方按钮切换选中。红方在上、蓝方在下。</p>
+  </main>
+
+  <script src="../js/data/physics.js"></script>
+  <script src="../js/data/players.js"></script>
+  <script src="../js/data/training.js"></script>
+  <script>
+(() => {
+  "use strict";
+
+  const W = 68;
+  const L = 105;
+  const PLAYER_R = window.FOUNCY_PHYSICS.PLAYER_R;
+  const BALL_R = window.FOUNCY_PHYSICS.BALL_R;
+  const players = window.FOUNCY_PLAYERS;
+  const training = window.FOUNCY_TRAINING;
+
+  const canvas = document.getElementById("pitch");
+  const ctx = canvas.getContext("2d");
+  const warnEl = document.getElementById("warn");
+  const previewEl = document.getElementById("preview");
+
+  const state = {
+    active: "ball",
+    drag: null,
+    layout: {
+      ball: { x: W * 0.5, y: L * 0.5 },
+      A: [
+        { x: W * 0.5, y: L * 0.7 },
+        { x: W * 0.25, y: L * 0.82 },
+        { x: W * 0.75, y: L * 0.82 },
+      ],
+      B: [
+        { x: W * 0.5, y: L * 0.22 },
+        { x: W * 0.25, y: L * 0.14 },
+        { x: W * 0.75, y: L * 0.14 },
+      ],
+    },
+    teamA: ["meilaoban", "suya", "wuseng"],
+    teamB: ["zongcai", "modi", "habao"],
+  };
+
+  function pieceList() {
+    return [
+      { key: "ball", label: "球" },
+      { key: "A0", label: "蓝1" },
+      { key: "A1", label: "蓝2" },
+      { key: "A2", label: "蓝3" },
+      { key: "B0", label: "红1" },
+      { key: "B1", label: "红2" },
+      { key: "B2", label: "红3" },
+    ];
+  }
+
+  function getPos(key) {
+    if (key === "ball") return state.layout.ball;
+    const m = /^(A|B)(\d)$/.exec(key);
+    if (!m) return null;
+    return state.layout[m[1]][+m[2]];
+  }
+
+  function setPos(key, x, y) {
+    const p = getPos(key);
+    if (!p) return;
+    p.x = Math.max(PLAYER_R * 0.5, Math.min(W - PLAYER_R * 0.5, x));
+    p.y = Math.max(BALL_R, Math.min(L - BALL_R, y));
+  }
+
+  function worldFromEvent(e) {
+    const rect = canvas.getBoundingClientRect();
+    const sx = ((e.clientX - rect.left) / rect.width) * canvas.width;
+    const sy = ((e.clientY - rect.top) / rect.height) * canvas.height;
+    const pad = 18;
+    const pitchW = canvas.width - pad * 2;
+    const pitchH = canvas.height - pad * 2;
+    const x = ((sx - pad) / pitchW) * W;
+    const y = ((sy - pad) / pitchH) * L;
+    return { x, y };
+  }
+
+  function hitTest(wx, wy) {
+    const keys = ["ball", "A0", "A1", "A2", "B0", "B1", "B2"];
+    let best = null;
+    let bestD = Infinity;
+    for (const key of keys) {
+      const p = getPos(key);
+      const r = key === "ball" ? BALL_R * 1.4 : PLAYER_R * 1.05;
+      const d = Math.hypot(p.x - wx, p.y - wy);
+      if (d <= r && d < bestD) {
+        best = key;
+        bestD = d;
+      }
+    }
+    return best;
+  }
+
+  function checkOverlaps() {
+    const items = [
+      { key: "ball", r: BALL_R, ...state.layout.ball },
+      ...state.layout.A.map((p, i) => ({ key: "A" + i, r: PLAYER_R, ...p })),
+      ...state.layout.B.map((p, i) => ({ key: "B" + i, r: PLAYER_R, ...p })),
+    ];
+    const bad = [];
+    for (let i = 0; i < items.length; i++) {
+      for (let j = i + 1; j < items.length; j++) {
+        const a = items[i];
+        const b = items[j];
+        const min = a.r + b.r;
+        if (Math.hypot(a.x - b.x, a.y - b.y) < min - 0.05) {
+          bad.push(`${a.key}↔${b.key}`);
+        }
+      }
+    }
+    return bad;
+  }
+
+  function buildLevelObject() {
+    return {
+      id: document.getElementById("lvId").value.trim() || "custom1",
+      diff: document.getElementById("lvDiff").value,
+      name: document.getElementById("lvName").value.trim() || "未命名",
+      subtitle: document.getElementById("lvSub").value.trim() || "",
+      tip: document.getElementById("lvTip").value.trim() || "",
+      idealShots: Math.max(1, +document.getElementById("lvIdeal").value || 1),
+      focus: document.getElementById("lvFocus").value,
+      teamA: state.teamA.slice(),
+      teamB: state.teamB.slice(),
+      layout: {
+        ball: { ...state.layout.ball },
+        A: state.layout.A.map((p) => ({ ...p })),
+        B: state.layout.B.map((p) => ({ ...p })),
+      },
+    };
+  }
+
+  function frac(n) {
+    return (Math.round(n * 1000) / 1000).toFixed(3).replace(/\.?0+$/, (m) => (m.startsWith(".") ? "" : m));
+  }
+
+  function posCode(p) {
+    const xf = p.x / W;
+    const yf = p.y / L;
+    return `{ x: W * ${xf.toFixed(3)}, y: L * ${yf.toFixed(3)} }`;
+  }
+
+  function levelToJs(lv) {
+    const lines = [];
+    lines.push(`      {`);
+    lines.push(`        id: ${JSON.stringify(lv.id)},`);
+    lines.push(`        diff: ${JSON.stringify(lv.diff)},`);
+    lines.push(`        name: ${JSON.stringify(lv.name)},`);
+    lines.push(`        subtitle: ${JSON.stringify(lv.subtitle)},`);
+    lines.push(`        tip: ${JSON.stringify(lv.tip)},`);
+    lines.push(`        idealShots: ${lv.idealShots},`);
+    lines.push(`        focus: ${JSON.stringify(lv.focus)},`);
+    lines.push(`        teamA: ${JSON.stringify(lv.teamA)},`);
+    lines.push(`        teamB: ${JSON.stringify(lv.teamB)},`);
+    lines.push(`        layout: {`);
+    lines.push(`          ball: ${posCode(lv.layout.ball)},`);
+    lines.push(`          A: [`);
+    lv.layout.A.forEach((p, i) => {
+      lines.push(`            ${posCode(p)}${i < 2 ? "," : ""}`);
+    });
+    lines.push(`          ],`);
+    lines.push(`          B: [`);
+    lv.layout.B.forEach((p, i) => {
+      lines.push(`            ${posCode(p)}${i < 2 ? "," : ""}`);
+    });
+    lines.push(`          ],`);
+    lines.push(`        },`);
+    lines.push(`      },`);
+    return lines.join("\n");
+  }
+
+  function refreshPreview() {
+    const lv = buildLevelObject();
+    previewEl.textContent = levelToJs(lv);
+    const bad = checkOverlaps();
+    if (bad.length) {
+      warnEl.className = "warn";
+      warnEl.textContent = "重叠: " + bad.join(" · ");
+    } else {
+      warnEl.className = "warn ok";
+      warnEl.textContent = "间距正常";
+    }
+  }
+
+  function draw() {
+    const pad = 18;
+    const pw = canvas.width - pad * 2;
+    const ph = canvas.height - pad * 2;
+    const sx = (x) => pad + (x / W) * pw;
+    const sy = (y) => pad + (y / L) * ph;
+    const sr = (r) => (r / W) * pw;
+
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    ctx.fillStyle = "#1a3d22";
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+    // pitch
+    ctx.fillStyle = "#2f8f48";
+    for (let i = 0; i < 8; i++) {
+      ctx.fillStyle = i % 2 ? "#2f8f48" : "#348f4c";
+      ctx.fillRect(pad + (pw / 8) * i, pad, pw / 8 + 1, ph);
+    }
+    ctx.strokeStyle = "rgba(255,255,255,0.55)";
+    ctx.lineWidth = 2;
+    ctx.strokeRect(pad, pad, pw, ph);
+    ctx.beginPath();
+    ctx.moveTo(pad, pad + ph / 2);
+    ctx.lineTo(pad + pw, pad + ph / 2);
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.arc(pad + pw / 2, pad + ph / 2, sr(9.15), 0, Math.PI * 2);
+    ctx.stroke();
+
+    // goals
+    const half = (window.FOUNCY_PHYSICS.PITCH.goalWidthM / 2 / W) * pw;
+    ctx.fillStyle = "rgba(255,255,255,0.25)";
+    ctx.fillRect(pad + pw / 2 - half, pad - 8, half * 2, 8);
+    ctx.fillRect(pad + pw / 2 - half, pad + ph, half * 2, 8);
+
+    function drawDot(p, color, label, r, selected) {
+      ctx.beginPath();
+      ctx.arc(sx(p.x), sy(p.y), sr(r), 0, Math.PI * 2);
+      ctx.fillStyle = color;
+      ctx.fill();
+      ctx.lineWidth = selected ? 3 : 2;
+      ctx.strokeStyle = selected ? "#ffd400" : "#2a1f14";
+      ctx.stroke();
+      if (label) {
+        ctx.fillStyle = "#fff";
+        ctx.font = "bold 11px Nunito, sans-serif";
+        ctx.textAlign = "center";
+        ctx.textBaseline = "middle";
+        ctx.fillText(label, sx(p.x), sy(p.y));
+      }
+    }
+
+    state.layout.B.forEach((p, i) => {
+      drawDot(p, "#e74c3c", "B" + (i + 1), PLAYER_R, state.active === "B" + i);
+    });
+    state.layout.A.forEach((p, i) => {
+      drawDot(p, "#3d7bfd", "A" + (i + 1), PLAYER_R, state.active === "A" + i);
+    });
+    drawDot(state.layout.ball, "#fff8e7", "", BALL_R, state.active === "ball");
+  }
+
+  function renderPieceBar() {
+    const bar = document.getElementById("pieceBar");
+    bar.innerHTML = "";
+    pieceList().forEach((p) => {
+      const b = document.createElement("button");
+      b.type = "button";
+      b.dataset.piece = p.key;
+      b.textContent = p.label;
+      if (state.active === p.key) b.classList.add("on");
+      b.addEventListener("click", () => {
+        state.active = p.key;
+        renderPieceBar();
+        draw();
+      });
+      bar.appendChild(b);
+    });
+  }
+
+  function fillTeamSelects() {
+    function fill(containerId, teamKey) {
+      const box = document.getElementById(containerId);
+      box.innerHTML = "";
+      for (let i = 0; i < 3; i++) {
+        const wrap = document.createElement("div");
+        const lab = document.createElement("label");
+        lab.textContent = (teamKey === "teamA" ? "蓝" : "红") + (i + 1);
+        const sel = document.createElement("select");
+        players.forEach((p) => {
+          const opt = document.createElement("option");
+          opt.value = p.id;
+          opt.textContent = p.name;
+          if (state[teamKey][i] === p.id) opt.selected = true;
+          sel.appendChild(opt);
+        });
+        sel.addEventListener("change", () => {
+          state[teamKey][i] = sel.value;
+          refreshPreview();
+        });
+        wrap.appendChild(lab);
+        wrap.appendChild(sel);
+        box.appendChild(wrap);
+      }
+    }
+    fill("teamASelects", "teamA");
+    fill("teamBSelects", "teamB");
+  }
+
+  function loadLevel(lv) {
+    if (!lv) return;
+    document.getElementById("lvId").value = lv.id;
+    document.getElementById("lvDiff").value = lv.diff;
+    document.getElementById("lvName").value = lv.name;
+    document.getElementById("lvSub").value = lv.subtitle || "";
+    document.getElementById("lvTip").value = lv.tip || "";
+    document.getElementById("lvIdeal").value = lv.idealShots || 1;
+    document.getElementById("lvFocus").value = lv.focus || "aim";
+    state.teamA = lv.teamA.slice();
+    state.teamB = lv.teamB.slice();
+    state.layout = {
+      ball: { ...lv.layout.ball },
+      A: lv.layout.A.map((p) => ({ ...p })),
+      B: lv.layout.B.map((p) => ({ ...p })),
+    };
+    fillTeamSelects();
+    refreshPreview();
+    draw();
+  }
+
+  function fillLoadSelect() {
+    const sel = document.getElementById("loadLevel");
+    training.levels.forEach((lv) => {
+      const opt = document.createElement("option");
+      opt.value = lv.id;
+      opt.textContent = `${lv.diff}/${lv.id} ${lv.name}`;
+      sel.appendChild(opt);
+    });
+    sel.addEventListener("change", () => {
+      const lv = training.levels.find((x) => x.id === sel.value);
+      if (lv) loadLevel(lv);
+    });
+  }
+
+  function download(filename, text, type) {
+    const blob = new Blob([text], { type: type || "application/json" });
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(blob);
+    a.download = filename;
+    a.click();
+    URL.revokeObjectURL(a.href);
+  }
+
+  // pointer
+  canvas.addEventListener("pointerdown", (e) => {
+    canvas.setPointerCapture(e.pointerId);
+    const w = worldFromEvent(e);
+    const hit = hitTest(w.x, w.y);
+    if (hit) state.active = hit;
+    else setPos(state.active, w.x, w.y);
+    state.drag = state.active;
+    canvas.classList.add("dragging");
+    renderPieceBar();
+    refreshPreview();
+    draw();
+  });
+  canvas.addEventListener("pointermove", (e) => {
+    if (!state.drag) return;
+    const w = worldFromEvent(e);
+    setPos(state.drag, w.x, w.y);
+    refreshPreview();
+    draw();
+  });
+  function endDrag() {
+    state.drag = null;
+    canvas.classList.remove("dragging");
+  }
+  canvas.addEventListener("pointerup", endDrag);
+  canvas.addEventListener("pointercancel", endDrag);
+
+  document.getElementById("btnReset").addEventListener("click", () => {
+    state.layout = {
+      ball: { x: W * 0.5, y: L * 0.5 },
+      A: [
+        { x: W * 0.5, y: L * 0.7 },
+        { x: W * 0.25, y: L * 0.82 },
+        { x: W * 0.75, y: L * 0.82 },
+      ],
+      B: [
+        { x: W * 0.5, y: L * 0.22 },
+        { x: W * 0.25, y: L * 0.14 },
+        { x: W * 0.75, y: L * 0.14 },
+      ],
+    };
+    refreshPreview();
+    draw();
+  });
+
+  document.getElementById("btnCopy").addEventListener("click", async () => {
+    const text = levelToJs(buildLevelObject());
+    try {
+      await navigator.clipboard.writeText(text);
+      warnEl.className = "warn ok";
+      warnEl.textContent = "已复制关卡 JS 到剪贴板";
+    } catch (_) {
+      warnEl.className = "warn";
+      warnEl.textContent = "复制失败，请手动从预览框选取";
+    }
+  });
+
+  document.getElementById("btnJson").addEventListener("click", () => {
+    const lv = buildLevelObject();
+    download(`${lv.id}.json`, JSON.stringify(lv, null, 2));
+  });
+
+  document.getElementById("btnAdd").addEventListener("click", () => {
+    const lv = buildLevelObject();
+    const bad = checkOverlaps();
+    if (bad.length && !confirm("当前有重叠单位，仍要导出写入吗？")) return;
+    download("_last-level.json", JSON.stringify(lv, null, 2));
+    // also try to put a copy hint
+    warnEl.className = "warn ok";
+    warnEl.textContent = "已下载 tools 用的 _last-level.json，请放到 tools/ 后运行 add 脚本";
+    alert(
+      "已下载 _last-level.json\n\n请把它放到项目的 tools/ 目录，然后在项目根目录执行：\n\nnode tools/add-training-level.mjs tools/_last-level.json\n\n（若浏览器下载到了「下载」文件夹，先移动过去）"
+    );
+  });
+
+  ["lvId", "lvDiff", "lvName", "lvSub", "lvTip", "lvIdeal", "lvFocus"].forEach((id) => {
+    document.getElementById(id).addEventListener("input", refreshPreview);
+  });
+
+  fillLoadSelect();
+  fillTeamSelects();
+  renderPieceBar();
+  refreshPreview();
+  draw();
+})();
+  </script>
+</body>
+</html>
