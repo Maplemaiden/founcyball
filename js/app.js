@@ -441,6 +441,7 @@
 
   const posDrag = {
     active: false,
+    moved: false,
     pointerId: null,
     slot: -1,
   };
@@ -1443,15 +1444,19 @@
       btn.innerHTML = avatarHtml(p, "空");
       btn.addEventListener("click", (e) => {
         if (roster.posEditing) return;
-        if (posDrag.active) return;
+        if (posDrag.active || posDrag.moved) return;
         roster.activeSlot = i;
         renderRoster();
       });
       if (p) {
-        btn.addEventListener("pointerdown", (e) => {
-          if (roster.posEditing) beginPosDrag(e, i);
-          else beginDrag(e, p.id, i);
-        });
+        btn.addEventListener(
+          "pointerdown",
+          (e) => {
+            if (roster.posEditing) beginPosDrag(e, i);
+            else beginDrag(e, p.id, i);
+          },
+          { passive: false }
+        );
       }
       ui.pitchSlots.appendChild(btn);
     }
@@ -1979,18 +1984,32 @@
   });
 
   function beginPosDrag(e, slotIndex) {
-    if (e.button != null && e.button !== 0) return;
+    // 触控 pointer 的 button 多为 0；忽略鼠标右键
+    if (e.pointerType === "mouse" && e.button !== 0) return;
     if (!roster.posEditing || posDrag.active) return;
+    const target = e.currentTarget;
+    if (!target) return;
+
     posDrag.active = true;
+    posDrag.moved = false;
     posDrag.pointerId = e.pointerId;
     posDrag.slot = slotIndex;
     try {
-      e.currentTarget.setPointerCapture(e.pointerId);
+      target.setPointerCapture(e.pointerId);
     } catch (_) {}
 
-    const onMove = (ev) => {
-      if (!posDrag.active || ev.pointerId !== posDrag.pointerId) return;
-      const world = clientToWorldOnPitch(ev.clientX, ev.clientY);
+    const readPoint = (ev) => {
+      if (ev.touches && ev.touches.length) {
+        return { x: ev.touches[0].clientX, y: ev.touches[0].clientY };
+      }
+      if (ev.changedTouches && ev.changedTouches.length) {
+        return { x: ev.changedTouches[0].clientX, y: ev.changedTouches[0].clientY };
+      }
+      return { x: ev.clientX, y: ev.clientY };
+    };
+
+    const applyAt = (clientX, clientY) => {
+      const world = clientToWorldOnPitch(clientX, clientY);
       if (!world) return;
       const key = roster.formationSide === "receive" ? "receive" : "kick";
       const spots = formations[key];
@@ -2004,19 +2023,62 @@
         btn.classList.toggle("in-box", overlapsOwnPenalty(next.x, next.y, PLAYER_R));
       }
     };
-    const onUp = (ev) => {
-      if (!posDrag.active || ev.pointerId !== posDrag.pointerId) return;
+
+    applyAt(e.clientX, e.clientY);
+
+    const samePointer = (ev) => {
+      if (posDrag.pointerId == null) return true;
+      if (ev.pointerId == null) return true; // touch 兜底事件
+      return ev.pointerId === posDrag.pointerId;
+    };
+
+    const onMove = (ev) => {
+      if (!posDrag.active || !samePointer(ev)) return;
+      const pt = readPoint(ev);
+      if (pt.x == null || pt.y == null) return;
+      posDrag.moved = true;
+      applyAt(pt.x, pt.y);
+      if (ev.cancelable) ev.preventDefault();
+    };
+
+    const cleanup = () => {
       posDrag.active = false;
       posDrag.pointerId = null;
       posDrag.slot = -1;
-      window.removeEventListener("pointermove", onMove);
-      window.removeEventListener("pointerup", onUp);
-      window.removeEventListener("pointercancel", onUp);
+      try {
+        target.releasePointerCapture(e.pointerId);
+      } catch (_) {}
+      target.removeEventListener("pointermove", onMove);
+      target.removeEventListener("pointerup", onUp);
+      target.removeEventListener("pointercancel", onUp);
+      document.removeEventListener("pointermove", onMove, true);
+      document.removeEventListener("pointerup", onUp, true);
+      document.removeEventListener("pointercancel", onUp, true);
+      document.removeEventListener("touchmove", onMove, true);
+      document.removeEventListener("touchend", onUp, true);
+      document.removeEventListener("touchcancel", onUp, true);
+      setTimeout(() => {
+        posDrag.moved = false;
+      }, 0);
     };
-    window.addEventListener("pointermove", onMove);
-    window.addEventListener("pointerup", onUp);
-    window.addEventListener("pointercancel", onUp);
-    e.preventDefault();
+
+    const onUp = (ev) => {
+      if (!posDrag.active || !samePointer(ev)) return;
+      cleanup();
+    };
+
+    // 同时挂在捕获目标与 document：兼容 iOS 触控丢失 window 监听的情况
+    target.addEventListener("pointermove", onMove);
+    target.addEventListener("pointerup", onUp);
+    target.addEventListener("pointercancel", onUp);
+    document.addEventListener("pointermove", onMove, true);
+    document.addEventListener("pointerup", onUp, true);
+    document.addEventListener("pointercancel", onUp, true);
+    document.addEventListener("touchmove", onMove, { passive: false, capture: true });
+    document.addEventListener("touchend", onUp, true);
+    document.addEventListener("touchcancel", onUp, true);
+
+    if (e.cancelable) e.preventDefault();
     e.stopPropagation();
   }
 

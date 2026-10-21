@@ -1078,6 +1078,18 @@ html, body {
   height: 100%;
   object-fit: cover;
   display: block;
+  pointer-events: none;
+  -webkit-user-drag: none;
+  user-drag: none;
+}
+
+.screen-roster.pos-editing .pitch-slots {
+  z-index: 6;
+  touch-action: none;
+}
+
+.screen-roster.pos-editing .roster-halfpitch {
+  touch-action: none;
 }
 
 .pitch-avatar.empty {
