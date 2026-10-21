@@ -74,7 +74,7 @@
       if (!p || !p.id || avatarImgs[p.id]) continue;
       const img = new Image();
       img.decoding = "async";
-      img.src = p.avatar || `assets/avatars/${p.id}.png`;
+      img.src = p.avatar || `assets/avatars/${p.id}.webp`;
       avatarImgs[p.id] = img;
     }
   }

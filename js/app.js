@@ -138,8 +138,9 @@
       },
       aim: {
         title: "解锁弧线",
-        text: "先照常拖动蓄力。再用另一根手指左右滑动拧弧；电脑也可按住 A（左旋）或 D（右旋）。",
+        text: "看下面演示：主指按住球员向下拉蓄力（别松），同时用另一根手指在旁边左右滑来拧弧。电脑可用 A / D。",
         hole: "stage",
+        demo: "curveHands",
       },
     },
   };
@@ -209,6 +210,19 @@
     el.classList.add("hidden");
     el.classList.remove("has-hole");
     tutorStepKey = null;
+    const demo = document.getElementById("tutorDemo");
+    if (demo) {
+      demo.classList.add("hidden");
+      demo.setAttribute("aria-hidden", "true");
+    }
+  }
+
+  function syncTutorDemo(demoKind) {
+    const demo = document.getElementById("tutorDemo");
+    if (!demo) return;
+    const show = demoKind === "curveHands";
+    demo.classList.toggle("hidden", !show);
+    demo.setAttribute("aria-hidden", show ? "false" : "true");
   }
 
   function setTutorHole(target) {
@@ -256,6 +270,7 @@
     }
     if (titleEl) titleEl.textContent = step.title;
     if (textEl) textEl.textContent = step.text;
+    syncTutorDemo(step.demo || null);
     guide.classList.remove("hidden");
     requestAnimationFrame(() => setTutorHole(step.hole || null));
   }
@@ -2161,7 +2176,7 @@
       const img = document.createElement("img");
       img.alt = p.name || "";
       img.decoding = "async";
-      img.src = p.avatar || `assets/avatars/${p.id}.png`;
+      img.src = p.avatar || `assets/avatars/${p.id}.webp`;
       el.appendChild(img);
       box.appendChild(el);
     });
@@ -2237,7 +2252,7 @@
               };
               img.onload = finish;
               img.onerror = finish;
-              img.src = p.avatar || `assets/avatars/${p.id}.png`;
+              img.src = p.avatar || `assets/avatars/${p.id}.webp`;
             })
         )
       );

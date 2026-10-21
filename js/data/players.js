@@ -12,7 +12,7 @@ window.FOUNCY_PLAYERS = [
     name: "苏牙",
     /** @prototype Luis Suárez 路易斯·苏亚雷斯 */
     prototype: "Luis Suárez / 苏亚雷斯",
-    avatar: "assets/avatars/suya.png",
+    avatar: "assets/avatars/suya.webp",
     role: "前锋",
     lane: "fwd",
     number: 9,
@@ -34,7 +34,7 @@ window.FOUNCY_PLAYERS = [
     name: "总裁",
     /** @prototype Cristiano Ronaldo 克里斯蒂亚诺·罗纳尔多（C罗） */
     prototype: "Cristiano Ronaldo / C罗",
-    avatar: "assets/avatars/zongcai.png",
+    avatar: "assets/avatars/zongcai.webp",
     role: "边锋",
     lane: "fwd",
     number: 7,
@@ -56,7 +56,7 @@ window.FOUNCY_PLAYERS = [
     name: "魔笛",
     /** @prototype Luka Modrić 卢卡·莫德里奇 */
     prototype: "Luka Modrić / 莫德里奇",
-    avatar: "assets/avatars/modi.png",
+    avatar: "assets/avatars/modi.webp",
     role: "中场",
     lane: "mid",
     number: 10,
@@ -78,7 +78,7 @@ window.FOUNCY_PLAYERS = [
     name: "哈宝",
     /** @prototype Erling Haaland 埃尔林·哈兰德 */
     prototype: "Erling Haaland / 哈兰德",
-    avatar: "assets/avatars/habao.png",
+    avatar: "assets/avatars/habao.webp",
     role: "中锋",
     lane: "fwd",
     number: 9,
@@ -100,7 +100,7 @@ window.FOUNCY_PLAYERS = [
     name: "武僧",
     /** @prototype Pepe 佩佩（葡萄牙后卫） */
     prototype: "Pepe / 佩佩",
-    avatar: "assets/avatars/wuseng.png",
+    avatar: "assets/avatars/wuseng.webp",
     role: "后卫",
     lane: "def",
     number: 3,
@@ -122,7 +122,7 @@ window.FOUNCY_PLAYERS = [
     name: "梅老板",
     /** @prototype Lionel Messi 利昂内尔·梅西 */
     prototype: "Lionel Messi / 梅西",
-    avatar: "assets/avatars/meilaoban.png",
+    avatar: "assets/avatars/meilaoban.webp",
     role: "前腰",
     lane: "mid",
     number: 10,
