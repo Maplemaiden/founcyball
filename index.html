@@ -4,13 +4,84 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover" />
   <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="theme-color" content="#7ec8f0" />
   <title>Founcyball</title>
+  <!-- 首屏关键样式内联：不等 css/style.css，避免先闪黑底 -->
+  <style>
+    html, body {
+      margin: 0;
+      height: 100%;
+      background: #7ec8f0;
+    }
+    #bootSplash {
+      position: fixed;
+      inset: 0;
+      z-index: 9999;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 24px;
+      box-sizing: border-box;
+      background:
+        radial-gradient(ellipse 80% 50% at 50% 0%, rgba(255, 255, 255, 0.35), transparent 55%),
+        linear-gradient(180deg, #9ad6f7 0%, #7ec8f0 38%, #b8df8a 70%, #3fa85a 100%);
+      color: #1e3a24;
+      font-family: system-ui, "PingFang SC", "Microsoft YaHei", sans-serif;
+    }
+    #bootSplash .boot-inner { width: min(340px, 100%); text-align: center; }
+    #bootSplash .boot-brand {
+      font-size: 1.85rem;
+      font-weight: 900;
+      letter-spacing: 0.04em;
+    }
+    #bootSplash .boot-sub {
+      margin: 6px 0 18px;
+      font-size: 0.82rem;
+      font-weight: 800;
+      color: #2a5a36;
+    }
+    #bootSplash .boot-bar {
+      height: 12px;
+      border-radius: 999px;
+      border: 2.5px solid #2a1f14;
+      background: rgba(255, 248, 231, 0.75);
+      overflow: hidden;
+    }
+    #bootSplash .boot-bar > i {
+      display: block;
+      height: 100%;
+      width: 0%;
+      background: linear-gradient(90deg, #ffe566, #c8f542);
+    }
+    #bootSplash .boot-pct {
+      margin-top: 8px;
+      font-size: 0.78rem;
+      font-weight: 900;
+    }
+    #bootSplash.done {
+      opacity: 0;
+      visibility: hidden;
+      pointer-events: none;
+      transition: opacity 0.35s ease, visibility 0.35s ease;
+    }
+  </style>
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Nunito:wght@700;800;900&display=swap" rel="stylesheet" />
   <link rel="stylesheet" href="css/style.css" />
 </head>
 <body>
+  <!-- 放在 #app 外，保证首屏立刻盖住，不依赖后续脚本 -->
+  <div id="bootSplash" class="boot-splash" aria-busy="true" aria-live="polite">
+    <div class="boot-inner">
+      <div class="boot-brand">Founcyball</div>
+      <p class="boot-sub">正在召集球员…</p>
+      <div class="boot-faces" id="bootFaces"></div>
+      <div class="boot-bar" aria-hidden="true"><i id="bootBar"></i></div>
+      <div class="boot-pct" id="bootPct">0%</div>
+    </div>
+  </div>
+
   <div id="app">
     <div id="lobby" class="lobby">
       <div class="lobby-body">
@@ -105,20 +176,39 @@
         <section id="screen-roster" class="screen screen-roster hidden">
           <header class="roster-head">
             <h2 id="rosterTitle">编队</h2>
+            <div class="roster-head-tools">
+              <div class="roster-kick-toggle" role="tablist" aria-label="先手后手站位">
+                <button type="button" class="roster-kick-pill on" data-formation="kick" role="tab" aria-selected="true">先手</button>
+                <button type="button" class="roster-kick-pill" data-formation="receive" role="tab" aria-selected="false">后手</button>
+              </div>
+            </div>
           </header>
 
           <div class="roster-pitch-panel" id="rosterPitchPanel">
             <div class="roster-halfpitch" id="rosterPitch" aria-label="半场阵容">
-              <div class="halfpitch-mark box" aria-hidden="true"></div>
-              <div class="halfpitch-mark arc" aria-hidden="true"></div>
-              <div class="halfpitch-mark spot" aria-hidden="true"></div>
+              <div class="halfpitch-marks" aria-hidden="true">
+                <div class="halfpitch-mark midline"></div>
+                <div class="halfpitch-mark circle"></div>
+                <div class="halfpitch-mark center-spot"></div>
+                <div class="halfpitch-mark pen-box"></div>
+                <div class="halfpitch-mark six-box"></div>
+                <div class="halfpitch-mark pen-spot"></div>
+                <div class="halfpitch-mark goal-line"></div>
+              </div>
               <div id="pitchSlots" class="pitch-slots"></div>
+              <p class="roster-pos-hint hidden" id="rosterPosHint">拖动球员摆位 · 不可进入中圈 · 最多一人进大禁区</p>
             </div>
           </div>
 
-          <button type="button" id="btnTogglePitch" class="pitch-fold-btn" aria-expanded="true">
-            收起球场
-          </button>
+          <div class="roster-pitch-actions">
+            <button type="button" id="btnTogglePitch" class="pitch-fold-btn" aria-expanded="true">
+              收起球场
+            </button>
+            <button type="button" id="btnEditFormation" class="roster-edit-btn" aria-pressed="false" title="调整站位">
+              <span class="roster-edit-label">摆位</span>
+              <span class="roster-edit-check" aria-hidden="true">✓ 保存</span>
+            </button>
+          </div>
 
           <div class="roster-bottom">
             <div class="roster-scroll" id="rosterScroll">
@@ -229,6 +319,37 @@
         <div class="energy-dock-label">能量</div>
         <div id="energyRows" class="energy-rows"></div>
       </aside>
+
+      <!-- 联机聊天：浮动按钮 + 底部上拉面板 -->
+      <button type="button" id="btnMatchChat" class="match-chat-fab hidden" aria-label="聊天" title="聊天">
+        <svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true">
+          <path fill="currentColor" d="M4 4h16a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H8l-4 3v-3H4a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2zm2 4v2h12V8H6zm0 4v2h8v-2H6z"/>
+        </svg>
+        <span class="match-chat-badge hidden" id="matchChatBadge">0</span>
+      </button>
+
+      <div id="matchChatSheet" class="match-chat-sheet hidden" aria-hidden="true">
+        <button type="button" class="match-chat-backdrop" id="matchChatBackdrop" aria-label="关闭聊天"></button>
+        <div class="match-chat-panel" role="dialog" aria-labelledby="matchChatTitle">
+          <header class="match-chat-head">
+            <h3 id="matchChatTitle">对局聊天</h3>
+            <button type="button" id="matchChatClose" class="match-chat-close" aria-label="关闭">×</button>
+          </header>
+          <div class="match-chat-log" id="matchChatLog"></div>
+          <form class="match-chat-form" id="matchChatForm">
+            <input
+              id="matchChatInput"
+              class="match-chat-input"
+              type="text"
+              maxlength="120"
+              placeholder="说点什么…"
+              autocomplete="off"
+              enterkeyhint="send"
+            />
+            <button type="submit" class="match-chat-send">发送</button>
+          </form>
+        </div>
+      </div>
     </section>
 
     <div id="overlay" class="overlay hidden">

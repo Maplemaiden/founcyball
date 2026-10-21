@@ -6,6 +6,12 @@ window.FOUNCY_PHYSICS = {
     goalWidthM: 68 * (2 / 5) * (5 / 6), // 原 2/5 底线宽的 5/6 → 约底线 1/3
     goalDepthM: 6,
     centerCircleR: 9.15,
+    /** 与对局 drawPitch 一致的标准示意尺寸（米） */
+    penaltyW: 40.32,
+    penaltyD: 16.5,
+    sixYardW: 18.32,
+    sixYardD: 5.5,
+    penaltySpot: 11,
   },
   WIN_SCORE: 2,
   PLAYER_R: 1.35 * 3 * 1.5,

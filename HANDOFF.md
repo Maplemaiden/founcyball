@@ -1,7 +1,8 @@
 # Founcyball 交接文档（HANDOFF）
 
 > 给新对话用：先读本文，再按需打开 `docs/` 与源码。  
-> 更新日：2026-10-10
+> 更新日：2026-10-21  
+> 仓库：https://github.com/Maplemaiden/founcyball
 
 ---
 
@@ -9,11 +10,12 @@
 
 **足球主题 · 俯视 2D · 回合制弹球对战**（工作名 Founcyball）。
 
-- 竖屏，面向手机；当前可玩载体是 **本地 Web（HTML Canvas）**
-- **人机** 或 **本地双人**；各上阵 **3 名圆形球员** + 1 球
-- 球员用**中文互联网外号**（避免真名侵权）；数据里必须带 `prototype` 标明现实原型（AI 往往不识外号）
+- 竖屏，面向手机；载体是 **本地 Web（HTML Canvas）**，无构建；也可经 GitHub Pages 托管
+- 模式：**排位人机**（普通 / 极难 AI）、**友谊赛本地双人**、**PeerJS 联机**、**训练关卡**
+- 各上阵 **3 名圆形球员** + 1 球
+- 球员用**中文互联网外号**（避免真名侵权）；数据里必须带 `prototype` 标明现实原型
 - 正式内容方向见 `docs/FORMAL_OUTLINE.md`（微信小游戏 / Cocos 为后续目标）
-- 早期玩法草稿见 `docs/MVP_DESIGN.md`（部分已过时，以本文 + 代码为准）
+- 早期玩法草稿见 `docs/MVP_DESIGN.md`（部分已过时，**以本文 + 代码为准**）
 
 ---
 
@@ -26,9 +28,16 @@ python -m http.server 5173
 
 浏览器打开：http://127.0.0.1:5173/
 
-流程：主页 → 编队（蓝方 3 人；人机时红方开局随机抽）→ 进入对局。
+启动流程：
 
-脚本顺序：`physics.js` → `players.js` → `ai.js` → `game.js` → `app.js`（无构建）。
+1. **加载页**（`#bootSplash`）预加载全部球员头像 + 场外围图  
+2. 若新手未完成 → 强制进入简单关 `e1`（见 §8）  
+3. 否则进入主页
+
+脚本顺序（`index.html` 底部，无构建）：
+
+`physics.js` → `players.js` → `ranks.js` → `training.js` → `ai.js` → `net.js` → `game.js` → `app.js`  
+另有 PeerJS CDN（联机用）。
 
 ---
 
@@ -37,18 +46,26 @@ python -m http.server 5173
 ```
 founcyball/
 ├── HANDOFF.md
-├── index.html              ← 多屏壳（主页/编队/占位/对局）
+├── index.html                 ← 多屏壳 + 加载页 + 新手引导 + 联机聊天 UI
 ├── css/style.css
 ├── assets/
-│   ├── pitch-surround.jpg  ← 场外围美术（蓝玻璃+沙漠；中间绘制时扣空）
-│   └── avatars/            ← 球员头像（若有）
+│   ├── pitch-surround.jpg     ← 场外围美术（绘制时 evenodd 扣洞）
+│   └── avatars/               ← 球员头像 PNG
 ├── js/
-│   ├── app.js              ← 大厅、编队、启停对局
-│   ├── game.js             ← 对局核心（物理/输入/绘制/技能/充能），导出 FouncyBall
-│   ├── ai.js               ← 简易人机决策（偏混战）
+│   ├── app.js                 ← 大厅/编队/训练/新手/联机/聊天/启动加载
+│   ├── game.js                ← 对局核心，导出 FouncyBall
+│   ├── ai.js                  ← 人机：normal 混战 / hard 仿真搜索
+│   ├── net.js                 ← PeerJS 联机封装 FouncyNet
 │   └── data/
-│       ├── physics.js      ← 全局手感 + 四维→倍率
-│       └── players.js      ← 外号球员 + prototype + 技能 + 默认阵容
+│       ├── physics.js         ← 手感常数 + modsFromStats
+│       ├── players.js         ← 外号球员 + prototype + 技能
+│       ├── ranks.js           ← 排位段位假数据
+│       └── training.js        ← 训练关卡 + tutorialLevelIds
+├── tools/
+│   ├── README.md
+│   ├── level-editor.html      ← 可视化摆位编辑器
+│   ├── add-training-level.mjs ← JSON → 写入 training.js
+│   └── verify-training.mjs    ← 极难搜索验关是否可解
 └── docs/
     ├── FORMAL_OUTLINE.md
     └── MVP_DESIGN.md
@@ -71,124 +88,187 @@ founcyball/
 
 默认阵容：蓝 `梅老板/苏牙/武僧`；红 `总裁/魔笛/哈宝`。
 
-**约定：** 新增球员必须写 `prototype: "英文名 / 中文名"`；外号仅作 `name`。
+**约定：** 新增球员必须写 `prototype: "英文名 / 中文名"`；外号仅作 `name`；并放入 `assets/avatars/{id}.png`。
 
 ---
 
 ## 5. 已实现玩法（以代码为准）
 
-### 对局规则
+### 5.1 对局规则
 
 | 项 | 现状 |
 |----|------|
-| 视角 | 竖屏；球场逻辑 **105×68**；球门在上下；可有场外视觉边距 |
-| 球门 | 宽 = 底线 **2/5**；向外球门槽深 **6** |
+| 视角 | 竖屏；球场逻辑 **105×68**；球门在上下 |
+| 球门 | `goalWidthM ≈ 底线 1/3`（原 2/5 × 5/6）；槽深 **6** |
 | 单位 | 球员/球均为圆；默认半径统一（哈宝技能可变大） |
 | 回合 | 选人 → 拖拽蓄力 → 松手发射；全场速度低于阈值可换手 |
-| 蓄力 | **从球员圆心起算**（相对拖动）；往哪边拉，反方向弹出 |
-| 弧线 | 绕圆转向；碰撞后取消；哈宝「魔人布欧」本击禁弧 |
+| 蓄力 | **从球员圆心起算**；往哪边拉，反方向弹出 |
+| 弧线 | 绕圆转向；碰撞后取消；布欧本击禁弧；新手前两关 `disableCurve` |
 | 进球 | 球**整体**越过门线且在门柱之间 |
-| 胜负 | **先到 2 球**（`WIN_SCORE: 2`） |
-| AI | `ai.js`；红方电脑时 `vsAI: true` |
+| 胜负 | 排位/友谊/联机 **先到 2**；训练关 **先到 1**（`winScore`） |
 
-### 操作
+### 5.2 操作
 
 - **主指/鼠标**：点球员拖拽蓄力，松手发射  
 - **副指**：主指按住时侧向拉 → 弧线  
 - **键盘**：蓄力中 **A** 左旋 / **D** 右旋  
-- 轨迹预览：虚线 + 力度疏密 + 一次折射预判 + 碰撞点高亮；约 **2/3** 路径  
+- 轨迹预览：虚线 + 力度疏密 + 一次折射预判  
 
-### 技能与充能（已实装）
+### 5.3 技能与充能
 
-- **充能制**：能量 0～1，满了可点底部能量条「发动」，出手消耗归零  
-- **lane 充能规则**  
-  - `fwd`：自己操控该人击打且**触球** → +1/3  
-  - `mid`：触球 → +1/5，**每回合每人一次**  
-  - `def`：己方半场触球 **或** 撞到对方球员 → +1/5，每回合一次  
-- **满能发光**：场上球员外圈向外发光（己方/对方都提示）  
-- **底部能量条**：紧凑三格，不挤扁球场；人机显示人类方，热座显示当前回合方  
+- 能量 0～1，满了可点底部能量条发动，出手归零  
+- `fwd` 自己击打触球 +1/3；`mid` 触球 +1/5/回合；`def` 己方半场触球或撞对方 +1/5/回合  
 
 | 技能 | 效果摘要 |
 |------|----------|
-| 禁区猎手 | 本击碰球后再朝球小幅冲击 |
-| 翩若游龙 | 力+20、弧+20，持续 1 回合 |
-| 节拍弧 | 弧+20，持续 2 回合 |
-| 魔人布欧 | 渐变×1.25 体积+质量、力+20、本击禁弧，1 回合 |
-| 武林飞铲 | 本击首个碰到的对手受伤 1 回合（不可选） |
+| 禁区猎手 | 碰球后减速再沿朝向二段加速 |
+| 翩若游龙 | 力+20、弧+20，1 回合 |
+| 节拍弧 | 弧+20，2 回合 |
+| 魔人布欧 | ×1.25 体积/质量、力+20、本击禁弧，1 回合 |
+| 武林飞铲 | 本击首个碰到的对手受伤 1 回合 |
 | 闲庭信步 | 本击未碰人/球 → 可再击一次 |
 
-### 大厅 / 编队
+### 5.4 人机难度
 
-- 四维：**力量 / 弧线 / 控停 / 冲撞**（0–100，约 50 为基准）  
-- 编队：先点槽位再点球员；固定 3 槽  
-- 图鉴 / 技能页 / 连携 / 商店：入口仍多为占位（技能已在对局内绑定球员）  
+| 难度 | 行为 |
+|------|------|
+| `normal` | 原混战 AI：加权选人 + 大噪声瞄准 |
+| `hard` | 真实物理静默仿真搜索；能进则进；`evaluateShot` 在 `game.js` |
 
-### API
+排位主页可选「普通 / 极难」；训练关对手固定 **极难**。
 
-```js
-FouncyBall.start({ teamA: PlayerDef[], teamB: PlayerDef[], vsAI?: boolean })
-FouncyBall.stop()
-```
+### 5.5 大厅模式
+
+- **排位赛**：人机，红方随机阵容，可选 AI 难度  
+- **友谊赛**：本地双人热座  
+- **联机**：PeerJS 房间号；房主蓝方、客机红方；双方准备后开战  
+- **编队**：拖拽/点选 3 槽；球员详情抽屉 + 技能演示 canvas  
+- **训练**：简单/普通/困难关卡列表；通关写入 `localStorage`（`founcy_train_v1`）  
+- 球探 / 商店：仍为占位  
+
+### 5.6 联机聊天
+
+- 仅联机对局右下角显示聊天按钮  
+- 点开从底部上拉面板；消息经 Peer 同步 `{ t: "chat", text, team, ts }`  
+- 气泡颜色：蓝方 `#3d7bfd`、红方 `#e74c3c`；未读角标  
+- 本局记录保留在 `online.chatLog`（离房清空）  
 
 ---
 
-## 6. 四维如何进物理
+## 6. 新手教程
+
+- 必打简单关顺序：`tutorialLevelIds = ["e1","e2","e3"]`  
+  - e1 门前礼包、e2 通天走廊：`disableCurve: true`（禁弧）  
+  - e3 绝妙弧线：解锁弧线并引导副指 / A·D  
+- 未完成前：**不能进主页 / 编队 / 球探 / 商店 / 联机**；底栏仅训练可用  
+- 通关后自动进下一关；全部完成后解锁大厅  
+- 关内聚光引导：`#tutorGuide`（球场高亮、周围变暗）  
+- 重置新手进度（控制台）：
+
+```js
+localStorage.removeItem('founcy_train_v1')
+```
+
+然后刷新。
+
+---
+
+## 7. 训练关卡与工具
+
+当前关卡（`js/data/training.js`）：
+
+| 难度 | id | 名称 |
+|------|-----|------|
+| 简单 | e1 / e2 / e3 | 门前礼包 / 通天走廊 / 绝妙弧线 |
+| 普通 | n1 / n2 / n3 | 人墙绕弧 / 边路回扣 / 借墙弹射 |
+| 困难 | h1 / h2 / h3 | 一线天 / 中圈重炮 / 背身刁钻 |
+
+关卡字段要点：`layout`（ball / A[3] / B[3] 世界坐标米）、`teamA`/`teamB`、`disableCurve`、`idealShots`、`focus`。
+
+**做关流程**（详见 `tools/README.md`）：
+
+1. http://127.0.0.1:5173/tools/level-editor.html 摆位  
+2. 下载 JSON → `node tools/add-training-level.mjs tools/_last-level.json`  
+3. `node tools/verify-training.mjs` 验：最近蓝方也能一击进上门  
+
+改难关后务必跑验证，避免无解关。
+
+---
+
+## 8. 四维 → 物理
 
 `js/data/physics.js` → `modsFromStats`：
 
 | 维 | 影响 |
 |----|------|
 | 力量 power | `powerMult` → 击打初速度 |
-| 弧线 curve | 更小 `curveRMin`、更快拧满 |
+| 弧线 curve | 更小 `curveRMin`、更快拧满；0 则禁弧 |
 | 控停 grip | `dragMult` 0.55~1.55 |
 | 冲撞 weight | `mass` + 碰撞弹性倍率 |
 
-技能的「力/弧 +20」是加在有效属性上再重算 mods。
+技能的「力/弧 +20」加在有效属性上再重算 mods。
+
+常改常数：`MAX_POWER` / `DRAG` / `CURVE_R_*` / `TURN_SWITCH_SPEED` / `PLAYER_R` / `BALL_R` / `WIN_SCORE`。
 
 ---
 
-## 7. 关键手感常数（常改）
+## 9. 关键 API
 
-均在 `js/data/physics.js`：
+```js
+FouncyBall.start({
+  teamA, teamB,
+  vsAI?, aiTeam?,
+  aiDifficulty?: "normal"|"hard",
+  winScore?,
+  trainingId?, trainingLayout?,
+  disableCurve?,          // 新手禁弧
+  localTeam?: "A"|"B",    // 联机本机方
+  onMatchOver?(winner),
+  onPhaseChange?(phase, { turn, aiTeam }),
+  onNetEvent?(evt),
+})
+FouncyBall.stop()
+FouncyBall.waitAssets({ onProgress, timeoutMs })  // 启动加载
+FouncyBall.evaluateShot(opts)                     // 极难 AI / 验关
+FouncyBall.applyRemoteShot / applyRemoteArm / applyRemoteRestart
 
-- `MAX_POWER` / `DRAG`  
-- `CURVE_R_MIN` / `CURVE_R_MAX` / `CURVE_KEY_TIME`  
-- `TURN_SWITCH_SPEED`  
-- `PLAYER_R` / `BALL_R`  
-- `WIN_SCORE`：当前 **2**  
-
-场外围美术：`assets/pitch-surround.jpg`；绘制时按球场+球门轮廓 **evenodd 扣洞**，场内只用程序草皮与线。
+FouncyAI.decide({ bodies, team, pitch, phys, difficulty, evaluateShot })
+FouncyNet.createNet()  // PeerJS
+```
 
 ---
 
-## 8. 刻意未做 / 占位
+## 10. 刻意未做 / 占位
 
-- 连携技（大纲有，未做）  
-- 联网对战  
+- 连携技  
 - 微信小游戏 / Cocos 工程  
-- 音效、商店、存档养成  
-- 完整教学引导  
+- 音效、商店实装、养成存档（训练通关除外）  
+- 排位真实段位 / 赛季  
+- 联机观战、表情包以外的社交  
 
 ---
 
-## 9. 已知坑
+## 11. 已知坑
 
-1. **编队红方空槽**：曾用 `splice` → 已固定 3 槽。  
-2. **蓄力方向**：须为拉向的反方向弹出；原点锚定**圆心**（相对拖动）。  
-3. **球门深度**：宽 2/5，深 **6**。  
-4. **进球**：须整球过线。  
-5. **AI 选人**：`pickWeighted` 要吃 `{v,w}`（`scraped`），曾漏转换导致电脑卡住 → 已修；决策失败会重试。  
-6. **进球复位**：`resetPositions(true)` 保留能量/buff，勿无参重建丢进度。  
+1. **编队红方空槽**：须固定 3 槽，勿 `splice` 缩数组。  
+2. **蓄力方向**：拉向的反方向弹出；原点锚定圆心。  
+3. **进球**：须整球过线。  
+4. **AI 选人**：`pickWeighted` 吃 `{v,w}`（经 `scraped`）。  
+5. **进球复位**：`resetPositions(true)` 保留能量/buff。  
+6. **训练站位**：球员中心距 ≥14、球员-球 ≥10；开局会再 `separateOverlaps`。  
+7. **新手锁底栏**：改导航时记得看 `isTutorialDone()`。  
+8. **联机**：依赖公共 PeerServer + CDN；防火墙/网络差会连不上。  
+9. **`tools/_last-level.json`**：本地草稿，勿提交仓库。  
 
 ---
 
-## 10. 建议下一对话方向
+## 12. 建议下一对话方向
 
-1. 连携技 / 平衡调参  
-2. 教学（两指弧线、充能说明）  
-3. 头像接入编队与对局  
-4. 导出 physics 表 → Cocos / 微信小游戏迁移  
-5. AI 稍微变聪明（仍保持可玩混战）  
+1. 训练关内容扩充 / 星级评价（几击通关）  
+2. 联机稳定性、断线重连、房间内聊天预开局  
+3. 音效与基础反馈  
+4. 平衡调参 / 连携技  
+5. Cocos / 微信小游戏迁移  
 
 新对话开场可复制：
 
@@ -200,20 +280,22 @@ FouncyBall.stop()
 
 ---
 
-## 11. 代码入口速查
+## 13. 代码入口速查
 
 | 想改… | 去哪 |
 |--------|------|
 | 胜负、摩擦、力度、弧线常数 | `js/data/physics.js` |
-| 球员外号/原型/四维/技能/充能定位 | `js/data/players.js` |
-| 人机决策 | `js/ai.js` |
-| 大厅/编队 | `js/app.js` |
-| 物理、输入、绘制、技能结算、能量条 | `js/game.js` |
-| 屏幕结构 | `index.html` |
+| 球员外号/原型/四维/技能 | `js/data/players.js` |
+| 训练关 / 新手关顺序 | `js/data/training.js` |
+| 人机决策（普通/极难） | `js/ai.js` |
+| 联机 Peer | `js/net.js` |
+| 大厅/编队/训练/新手/聊天/启动 | `js/app.js` |
+| 物理、输入、绘制、技能、仿真 | `js/game.js` |
+| 屏幕结构 / 加载页 / 引导 / 聊天 DOM | `index.html` |
 | 样式 | `css/style.css` |
-| 场外围图 | `assets/pitch-surround.jpg` |
+| 做关 / 验关 | `tools/` |
 | 正式版规划 | `docs/FORMAL_OUTLINE.md` |
 
 ---
 
-**一句话现状：** 竖屏 Web 可玩正式雏形——外号球员（含 prototype）+ 四维编队 + 弹球手感/弧线 + 充能主动技能 + 简易人机；连携与小游戏迁移未开始。
+**一句话现状：** 竖屏 Web 可玩正式雏形——外号球员 + 四维编队 + 弹球/弧线/充能技能 + 普通/极难人机 + 训练关与新手强制教程 + PeerJS 联机与对局聊天 + 启动头像预加载；连携与小游戏迁移未开始。

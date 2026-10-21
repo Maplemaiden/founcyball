@@ -260,6 +260,10 @@
     onMatchOver: null,
     /** 阶段变化回调 (phase) => void */
     onPhaseChange: null,
+    /** 训练失败时不弹窗、直接重开（新手教程） */
+    autoRetryOnFail: false,
+    /** 自动重开前回调（用于重置教学引导） */
+    onAutoRetry: null,
     /** 新手：强制禁用弧线输入 */
     curveLocked: false,
     /**
@@ -619,11 +623,17 @@
         let scorer = null;
         let steps = 0;
         for (; steps < maxSteps; steps++) {
+          const bb = ball();
+          const prevX = bb ? bb.x : null;
+          const prevY = bb ? bb.y : null;
           integrate(STEP);
+          // 位移后立刻判：避免随后门网/撞人把球顶回门外漏判
+          scorer = checkGoalSweep(prevX, prevY);
           collideBodies();
+          if (!scorer) scorer = checkGoal();
           collideWalls();
           tickSuyaBite();
-          scorer = checkGoal();
+          if (!scorer) scorer = checkGoal();
           if (scorer) break;
           const suyaWaiting =
             state.shotCtx &&
@@ -1727,15 +1737,58 @@
     }
   }
 
-  function checkGoal() {
-    const b = ball();
+  function checkGoalAt(x, y, r) {
     const L = PITCH.lengthM;
     const { gx0, gx1 } = goalXRange();
-
     // 蓝在下攻上：整球进上门 → 蓝得分；红在上攻下：整球进下门 → 红得分
     // 上门 = 红方自家球门；下门 = 蓝方自家球门
-    if (b.y + b.r < 0 && b.x - b.r > gx0 && b.x + b.r < gx1) return "A";
-    if (b.y - b.r > L && b.x - b.r > gx0 && b.x + b.r < gx1) return "B";
+    if (y + r < 0 && x - r > gx0 && x + r < gx1) return "A";
+    if (y - r > L && x - r > gx0 && x + r < gx1) return "B";
+    return null;
+  }
+
+  function checkGoal() {
+    const b = ball();
+    if (!b) return null;
+    return checkGoalAt(b.x, b.y, b.r);
+  }
+
+  /**
+   * 本步位移是否「整球越过门线」（门柱之间）。
+   * 用于进球后同帧被门网/球员顶回场内、静止点已在门外时仍判进球（含乌龙）。
+   */
+  function checkGoalSweep(prevX, prevY) {
+    const b = ball();
+    if (!b) return null;
+    const now = checkGoalAt(b.x, b.y, b.r);
+    if (now) return now;
+    if (prevX == null || prevY == null) return null;
+
+    const L = PITCH.lengthM;
+    const { gx0, gx1 } = goalXRange();
+    const r = b.r;
+    const dx = b.x - prevX;
+    const dy = b.y - prevY;
+    if (Math.abs(dy) < 1e-9) return null;
+
+    // 整球过上门线：中心自上而下越过 y = -r
+    const topY = -r;
+    if (prevY >= topY && b.y < topY) {
+      const t = (topY - prevY) / dy;
+      if (t >= 0 && t <= 1) {
+        const x = prevX + dx * t;
+        if (x - r > gx0 && x + r < gx1) return "A";
+      }
+    }
+    // 整球过下门线：中心自下而上越过 y = L + r
+    const botY = L + r;
+    if (prevY <= botY && b.y > botY) {
+      const t = (botY - prevY) / dy;
+      if (t >= 0 && t <= 1) {
+        const x = prevX + dx * t;
+        if (x - r > gx0 && x + r < gx1) return "B";
+      }
+    }
     return null;
   }
 
@@ -1779,10 +1832,25 @@
 
       const need = state.winScore || WIN_SCORE;
       if (state.scoreA >= need || state.scoreB >= need) {
-        setPhase("over");
         const winner = state.scoreA >= need ? "A" : "B";
         const training = !!state.trainingId;
         const cleared = training && winner === "A";
+
+        // 新手教程失败：不弹失败窗、不退出，原地复位重开
+        if (training && !cleared && state.autoRetryOnFail) {
+          freezeAll();
+          if (typeof state.onAutoRetry === "function") {
+            try {
+              state.onAutoRetry();
+            } catch (err) {
+              console.error("onAutoRetry failed", err);
+            }
+          }
+          restartMatch();
+          return;
+        }
+
+        setPhase("over");
         showOverlay(
           cleared ? "通关！" : training ? "挑战失败" : `${teamName(winner)}获胜`,
           cleared
@@ -3042,11 +3110,17 @@
     if (state.phase === "sim") {
       let scored = null;
       while (acc >= STEP) {
+        const bb = ball();
+        const prevX = bb ? bb.x : null;
+        const prevY = bb ? bb.y : null;
         integrate(STEP);
+        // 位移后立刻判：避免随后门网/撞人把球顶回门外漏判（含乌龙）
+        scored = checkGoalSweep(prevX, prevY);
         collideBodies();
+        if (!scored) scored = checkGoal();
         collideWalls();
         tickSuyaBite();
-        scored = checkGoal();
+        if (!scored) scored = checkGoal();
         if (scored) break;
         acc -= STEP;
       }
@@ -3263,6 +3337,9 @@
       config && typeof config.onMatchOver === "function" ? config.onMatchOver : null;
     state.onPhaseChange =
       config && typeof config.onPhaseChange === "function" ? config.onPhaseChange : null;
+    state.autoRetryOnFail = !!(config && config.autoRetryOnFail);
+    state.onAutoRetry =
+      config && typeof config.onAutoRetry === "function" ? config.onAutoRetry : null;
     state.curveLocked = !!(config && config.disableCurve);
     state.localTeam =
       config && (config.localTeam === "A" || config.localTeam === "B")

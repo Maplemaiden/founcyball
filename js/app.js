@@ -7,16 +7,17 @@
   const ranks = window.FOUNCY_RANKS || [];
   const rankFake = window.FOUNCY_RANK_FAKE || { rankId: "city", cups: 0 };
 
-  /** 半场三角阵型：槽位坐标固定，不随球员 lane 移动 */
-  const SLOT_POS = [
-    { x: 50, y: 28 }, // 0 前
-    { x: 28, y: 72 }, // 1 左下
-    { x: 72, y: 72 }, // 2 右下
-  ];
-
   const trainingData = window.FOUNCY_TRAINING || { difficulties: [], levels: [], blurb: "" };
-  const PITCH_W = (window.FOUNCY_PHYSICS && window.FOUNCY_PHYSICS.PITCH.widthM) || 68;
-  const PITCH_L = (window.FOUNCY_PHYSICS && window.FOUNCY_PHYSICS.PITCH.lengthM) || 105;
+  const PHYS = window.FOUNCY_PHYSICS || {};
+  const PITCH = PHYS.PITCH || {};
+  const PITCH_W = PITCH.widthM || 68;
+  const PITCH_L = PITCH.lengthM || 105;
+  const PLAYER_R = PHYS.PLAYER_R || 6.075;
+  const CENTER_R = PITCH.centerCircleR || 9.15;
+  const PEN_W = PITCH.penaltyW || 40.32;
+  const PEN_D = PITCH.penaltyD || 16.5;
+  const HALF_L = PITCH_L * 0.5;
+  const FORMATION_SAVE_KEY = "founcy_formation_v1";
 
   const ui = {
     lobby: document.getElementById("lobby"),
@@ -50,7 +51,10 @@
     rosterTitle: document.getElementById("rosterTitle"),
     labelA: document.getElementById("labelA"),
     labelB: document.getElementById("labelB"),
+    rosterPitch: document.getElementById("rosterPitch"),
     pitchSlots: document.getElementById("pitchSlots"),
+    rosterPosHint: document.getElementById("rosterPosHint"),
+    btnEditFormation: document.getElementById("btnEditFormation"),
     ownedGrid: document.getElementById("ownedGrid"),
     lockedGrid: document.getElementById("lockedGrid"),
     btnExit: document.getElementById("btnExitMatch"),
@@ -281,6 +285,144 @@
     return line;
   }
 
+  /** 默认开球站位（蓝方绝对世界坐标，与 game.js defaultKickoffSpots 一致） */
+  function defaultFormationSpots() {
+    const gap = PLAYER_R * 2.4;
+    const back = PLAYER_R * 0.5;
+    const xs = [PITCH_W * 0.22, PITCH_W * 0.5, PITCH_W * 0.78];
+    const aY = PITCH_L * 0.74 + back;
+    return xs.map((x, i) => ({
+      x,
+      y: i === 1 ? aY - gap * 0.55 : aY,
+    }));
+  }
+
+  function cloneSpots(spots) {
+    return (spots || []).slice(0, 3).map((s) => ({ x: Number(s.x), y: Number(s.y) }));
+  }
+
+  function mirrorSpotsToTeamB(spots) {
+    return cloneSpots(spots).map((s) => ({
+      x: PITCH_W - s.x,
+      y: PITCH_L - s.y,
+    }));
+  }
+
+  function normalizeFormationSide(side) {
+    const fallback = defaultFormationSpots();
+    const src = Array.isArray(side) && side.length >= 3 ? side : fallback;
+    const out = [];
+    for (let i = 0; i < 3; i++) {
+      const s = src[i] || fallback[i];
+      out.push(clampFormationPos(Number(s.x), Number(s.y), out, i));
+    }
+    return out;
+  }
+
+  function loadFormations() {
+    const fallback = {
+      kick: defaultFormationSpots(),
+      receive: defaultFormationSpots(),
+    };
+    try {
+      const raw = localStorage.getItem(FORMATION_SAVE_KEY);
+      if (!raw) return fallback;
+      const data = JSON.parse(raw);
+      return {
+        kick: normalizeFormationSide(data && data.kick),
+        receive: normalizeFormationSide(data && data.receive),
+      };
+    } catch (_) {
+      return fallback;
+    }
+  }
+
+  function saveFormations() {
+    try {
+      localStorage.setItem(
+        FORMATION_SAVE_KEY,
+        JSON.stringify({
+          kick: cloneSpots(formations.kick),
+          receive: cloneSpots(formations.receive),
+        })
+      );
+    } catch (_) {}
+  }
+
+  /** 圆与禁区矩形是否相交（己方下半场大禁区） */
+  function overlapsOwnPenalty(x, y, r) {
+    const px0 = (PITCH_W - PEN_W) / 2;
+    const px1 = px0 + PEN_W;
+    const py0 = PITCH_L - PEN_D;
+    const py1 = PITCH_L;
+    const cx = Math.max(px0, Math.min(px1, x));
+    const cy = Math.max(py0, Math.min(py1, y));
+    return Math.hypot(x - cx, y - cy) < r - 1e-6;
+  }
+
+  /** 体积不可进入中圈；最多一人进大禁区；须留在己方半场 */
+  function clampFormationPos(x, y, others, selfIndex) {
+    const r = PLAYER_R;
+    let nx = Math.max(r, Math.min(PITCH_W - r, x));
+    let ny = Math.max(HALF_L + r, Math.min(PITCH_L - r, y));
+
+    // 整体离开中圈
+    const cx = PITCH_W * 0.5;
+    const cy = PITCH_L * 0.5;
+    const minDist = CENTER_R + r;
+    for (let iter = 0; iter < 4; iter++) {
+      const d = Math.hypot(nx - cx, ny - cy);
+      if (d >= minDist || d < 1e-6) break;
+      const s = minDist / d;
+      nx = cx + (nx - cx) * s;
+      ny = cy + (ny - cy) * s;
+      nx = Math.max(r, Math.min(PITCH_W - r, nx));
+      ny = Math.max(HALF_L + r, Math.min(PITCH_L - r, ny));
+    }
+
+    // 已有一人在禁区则其他人推出
+    const inBoxCount = (others || []).reduce((n, s, i) => {
+      if (i === selfIndex || !s) return n;
+      return n + (overlapsOwnPenalty(s.x, s.y, r) ? 1 : 0);
+    }, 0);
+    if (inBoxCount >= 1 && overlapsOwnPenalty(nx, ny, r)) {
+      const px0 = (PITCH_W - PEN_W) / 2;
+      const px1 = px0 + PEN_W;
+      const py0 = PITCH_L - PEN_D;
+      // 推到禁区顶边之外（更靠近中场）
+      ny = Math.min(ny, py0 - r);
+      // 若仍因左右贴边相交，再向左右推开
+      if (overlapsOwnPenalty(nx, ny, r)) {
+        if (nx < PITCH_W * 0.5) nx = px0 - r;
+        else nx = px1 + r;
+        nx = Math.max(r, Math.min(PITCH_W - r, nx));
+      }
+      ny = Math.max(HALF_L + r, Math.min(PITCH_L - r, ny));
+    }
+
+    return { x: nx, y: ny };
+  }
+
+  /** 世界坐标（蓝方半场）→ 半场面板百分比：中线在上、球门在下 */
+  function worldToPitchPercent(x, y) {
+    return {
+      left: (x / PITCH_W) * 100,
+      top: ((y - HALF_L) / HALF_L) * 100,
+    };
+  }
+
+  function clientToWorldOnPitch(clientX, clientY) {
+    const el = ui.rosterPitch;
+    if (!el) return null;
+    const rect = el.getBoundingClientRect();
+    if (rect.width < 1 || rect.height < 1) return null;
+    const x = ((clientX - rect.left) / rect.width) * PITCH_W;
+    const y = HALF_L + ((clientY - rect.top) / rect.height) * HALF_L;
+    return { x, y };
+  }
+
+  const formations = loadFormations();
+
   const roster = {
     /** "ranked" | "friendly" | "online" —— 仅影响开战，编队页共用 */
     mode: "ranked",
@@ -289,8 +431,18 @@
     team: "A",
     activeSlot: 0,
     pitchFolded: false,
+    /** "kick" 先手开球站位 | "receive" 后手站位 */
+    formationSide: "kick",
+    /** 是否正在拖拽摆位 */
+    posEditing: false,
     A: padLine(window.FOUNCY_DEFAULT_LINEUP_A),
     B: padLine(window.FOUNCY_DEFAULT_LINEUP_B),
+  };
+
+  const posDrag = {
+    active: false,
+    pointerId: null,
+    slot: -1,
   };
 
   const online = {
@@ -302,6 +454,8 @@
     readyOpp: false,
     /** 对手阵容 id[] */
     oppLine: padLine(window.FOUNCY_DEFAULT_LINEUP_B),
+    /** 对手开球站位（对方本地「己方半场」坐标，开战时再镜像到红方） */
+    oppLayouts: null,
     matchStarted: false,
     /** @type {{ team: "A"|"B", text: string, ts: number, mine: boolean }[]} */
     chatLog: [],
@@ -387,10 +541,34 @@
     return net;
   }
 
+  function myFormationPayload() {
+    return {
+      kick: cloneSpots(formations.kick),
+      receive: cloneSpots(formations.receive),
+    };
+  }
+
+  /** 本地存的是蓝方半场坐标；映射到指定队伍的世界坐标 */
+  function layoutsForTeam(stored, team) {
+    const kick = normalizeFormationSide(stored && stored.kick);
+    const receive = normalizeFormationSide(stored && stored.receive);
+    if (team === "B") {
+      return { kick: mirrorSpotsToTeamB(kick), receive: mirrorSpotsToTeamB(receive) };
+    }
+    return { kick, receive };
+  }
+
+  function buildKickoffLayoutsForMatch(teamAStored, teamBStored) {
+    const out = {};
+    if (teamAStored) out.A = layoutsForTeam(teamAStored, "A");
+    if (teamBStored) out.B = layoutsForTeam(teamBStored, "B");
+    return out;
+  }
+
   function pushMyLineup() {
     if (!online.net || !online.net.isConnected()) return;
     const ids = padLine(roster.A);
-    online.net.send({ t: "lineup", ids });
+    online.net.send({ t: "lineup", ids, formation: myFormationPayload() });
   }
 
   function pushReady() {
@@ -455,6 +633,13 @@
     }
     if (msg.t === "lineup" && Array.isArray(msg.ids)) {
       online.oppLine = padLine(msg.ids);
+      if (msg.formation) {
+        // 对手发来的是「己方半场」坐标，先按蓝方规范化，开战时再镜像到红方
+        online.oppLayouts = {
+          kick: normalizeFormationSide(msg.formation.kick),
+          receive: normalizeFormationSide(msg.formation.receive),
+        };
+      }
       syncOnlineUi();
       return;
     }
@@ -732,6 +917,10 @@
     clearChatLog();
     show("match");
     setChatFabVisible(true);
+    const hostFormation = (msg && msg.formationA) || (online.role === "host" ? myFormationPayload() : null);
+    const guestFormation =
+      (msg && msg.formationB) ||
+      (online.role === "guest" ? myFormationPayload() : online.oppLayouts);
     requestAnimationFrame(() => {
       window.FouncyBall.start({
         teamA: resolveLine(teamAIds),
@@ -741,6 +930,7 @@
         winScore: 2,
         trainingId: null,
         trainingLayout: null,
+        kickoffLayouts: buildKickoffLayoutsForMatch(hostFormation, guestFormation),
         onMatchOver: null,
         onNetEvent: (evt) => {
           if (!online.net) return;
@@ -782,6 +972,8 @@
       t: "start",
       teamA: padLine(roster.A),
       teamB: padLine(online.oppLine),
+      formationA: myFormationPayload(),
+      formationB: online.oppLayouts || myFormationPayload(),
     };
     online.net.send(payload);
     beginOnlineMatch(payload);
@@ -1020,7 +1212,13 @@
         trainingId: lv.id,
         trainingLayout: lv.layout || null,
         disableCurve: !!lv.disableCurve,
-        onPhaseChange: (phase) => onTutorialPhase(phase),
+        autoRetryOnFail: !!tutorialActiveLevel,
+        onAutoRetry: () => {
+          if (!tutorialActiveLevel) return;
+          tutorSeen = Object.create(null);
+          hideTutorGuide();
+        },
+        onPhaseChange: (phase, meta) => onTutorialPhase(phase, meta),
         onMatchOver: (winner) => {
           hideTutorGuide();
           if (winner === "A") markTrainCleared(lv.id);
@@ -1040,6 +1238,7 @@
             show("home");
             return;
           }
+          // 非新手训练失败仍回训练页；新手失败由 autoRetryOnFail 原地重开，不会走到这里
           tutorialActiveLevel = null;
           if (ui.btnExit) ui.btnExit.textContent = "退出";
           show("train");
@@ -1081,6 +1280,13 @@
       }
     }
 
+    if (name !== "roster" && roster.posEditing) {
+      formations.kick = normalizeFormationSide(formations.kick);
+      formations.receive = normalizeFormationSide(formations.receive);
+      saveFormations();
+      roster.posEditing = false;
+      if (isOnline() && online.role) pushMyLineup();
+    }
     if (name === "roster") {
       roster.team = "A";
       if (!lineFull(roster.A)) roster.A = padLine(window.FOUNCY_DEFAULT_LINEUP_A);
@@ -1166,27 +1372,86 @@
     return `<div class="pitch-avatar empty">${(p.name || "?").slice(0, 1)}</div>`;
   }
 
+  function currentFormationSpots() {
+    const key = roster.formationSide === "receive" ? "receive" : "kick";
+    return formations[key];
+  }
+
+  function syncFormationUi() {
+    document.querySelectorAll("[data-formation]").forEach((pill) => {
+      const on = pill.getAttribute("data-formation") === roster.formationSide;
+      pill.classList.toggle("on", on);
+      pill.setAttribute("aria-selected", on ? "true" : "false");
+    });
+    ui.screens.roster?.classList.toggle("pos-editing", !!roster.posEditing);
+    if (ui.btnEditFormation) {
+      ui.btnEditFormation.classList.toggle("editing", !!roster.posEditing);
+      ui.btnEditFormation.setAttribute("aria-pressed", roster.posEditing ? "true" : "false");
+      ui.btnEditFormation.title = roster.posEditing ? "保存站位" : "调整站位";
+    }
+    if (ui.rosterPosHint) {
+      ui.rosterPosHint.classList.toggle("hidden", !roster.posEditing);
+    }
+  }
+
+  function setFormationSide(side) {
+    if (side !== "kick" && side !== "receive") return;
+    if (side === roster.formationSide) return;
+    roster.formationSide = side;
+    syncFormationUi();
+    renderPitch();
+  }
+
+  function toggleFormationEdit() {
+    if (roster.posEditing) {
+      // 保存
+      formations.kick = normalizeFormationSide(formations.kick);
+      formations.receive = normalizeFormationSide(formations.receive);
+      saveFormations();
+      roster.posEditing = false;
+      if (isOnline() && online.role) pushMyLineup();
+    } else {
+      roster.pitchFolded = false;
+      syncPitchFoldUi();
+      roster.posEditing = true;
+    }
+    syncFormationUi();
+    renderPitch();
+  }
+
   function renderPitch() {
     if (!ui.pitchSlots) return;
     const line = currentLine();
+    const spots = currentFormationSpots();
+    const sizeW = (PLAYER_R * 2) / PITCH_W * 100;
     ui.pitchSlots.innerHTML = "";
     for (let i = 0; i < 3; i++) {
       const id = line[i];
       const p = id ? byId[id] : null;
+      const spot = spots[i] || defaultFormationSpots()[i];
+      const pct = worldToPitchPercent(spot.x, spot.y);
       const btn = document.createElement("button");
       btn.type = "button";
-      btn.className = "pitch-slot" + (roster.activeSlot === i ? " active" : "");
+      btn.className =
+        "pitch-slot" +
+        (roster.activeSlot === i ? " active" : "") +
+        (overlapsOwnPenalty(spot.x, spot.y, PLAYER_R) ? " in-box" : "");
       btn.dataset.slot = String(i);
-      btn.style.left = `${SLOT_POS[i].x}%`;
-      btn.style.top = `${SLOT_POS[i].y}%`;
+      btn.style.left = `${pct.left}%`;
+      btn.style.top = `${pct.top}%`;
+      btn.style.width = `${sizeW}%`;
       btn.innerHTML = avatarHtml(p, "空");
-      btn.addEventListener("click", () => {
+      btn.addEventListener("click", (e) => {
+        if (roster.posEditing) return;
+        if (posDrag.active) return;
         roster.activeSlot = i;
         renderRoster();
       });
-      // 场上球员也可拖到其他槽交换
       if (p) {
-        btn.addEventListener("pointerdown", (e) => beginDrag(e, p.id, i));
+        btn.addEventListener("pointerdown", (e) => {
+          if (roster.posEditing) beginPosDrag(e, i);
+          else beginDrag(e, p.id, i);
+        });
       }
       ui.pitchSlots.appendChild(btn);
     }
@@ -1473,6 +1738,7 @@
   function renderRoster() {
     if (ui.rosterTitle) ui.rosterTitle.textContent = "编队";
     syncPitchFoldUi();
+    syncFormationUi();
     renderPitch();
     renderCards();
   }
@@ -1495,6 +1761,12 @@
       show("roster");
       return;
     }
+    if (roster.posEditing) {
+      formations.kick = normalizeFormationSide(formations.kick);
+      formations.receive = normalizeFormationSide(formations.receive);
+      saveFormations();
+      roster.posEditing = false;
+    }
     if (ui.labelA) ui.labelA.textContent = "蓝";
     if (ui.labelB) ui.labelB.textContent = isRanked() ? "电脑" : "红";
     setChatFabVisible(false);
@@ -1508,6 +1780,7 @@
         winScore: 2,
         trainingId: null,
         trainingLayout: null,
+        kickoffLayouts: buildKickoffLayoutsForMatch(myFormationPayload(), null),
         onMatchOver: null,
       });
     });
@@ -1689,9 +1962,62 @@
 
   if (ui.btnTogglePitch) {
     ui.btnTogglePitch.addEventListener("click", () => {
+      if (roster.posEditing) return;
       roster.pitchFolded = !roster.pitchFolded;
       syncPitchFoldUi();
     });
+  }
+
+  if (ui.btnEditFormation) {
+    ui.btnEditFormation.addEventListener("click", () => toggleFormationEdit());
+  }
+
+  document.querySelectorAll("[data-formation]").forEach((pill) => {
+    pill.addEventListener("click", () => {
+      setFormationSide(pill.getAttribute("data-formation"));
+    });
+  });
+
+  function beginPosDrag(e, slotIndex) {
+    if (e.button != null && e.button !== 0) return;
+    if (!roster.posEditing || posDrag.active) return;
+    posDrag.active = true;
+    posDrag.pointerId = e.pointerId;
+    posDrag.slot = slotIndex;
+    try {
+      e.currentTarget.setPointerCapture(e.pointerId);
+    } catch (_) {}
+
+    const onMove = (ev) => {
+      if (!posDrag.active || ev.pointerId !== posDrag.pointerId) return;
+      const world = clientToWorldOnPitch(ev.clientX, ev.clientY);
+      if (!world) return;
+      const key = roster.formationSide === "receive" ? "receive" : "kick";
+      const spots = formations[key];
+      const next = clampFormationPos(world.x, world.y, spots, posDrag.slot);
+      spots[posDrag.slot] = next;
+      const btn = ui.pitchSlots?.querySelector(`.pitch-slot[data-slot="${posDrag.slot}"]`);
+      if (btn) {
+        const pct = worldToPitchPercent(next.x, next.y);
+        btn.style.left = `${pct.left}%`;
+        btn.style.top = `${pct.top}%`;
+        btn.classList.toggle("in-box", overlapsOwnPenalty(next.x, next.y, PLAYER_R));
+      }
+    };
+    const onUp = (ev) => {
+      if (!posDrag.active || ev.pointerId !== posDrag.pointerId) return;
+      posDrag.active = false;
+      posDrag.pointerId = null;
+      posDrag.slot = -1;
+      window.removeEventListener("pointermove", onMove);
+      window.removeEventListener("pointerup", onUp);
+      window.removeEventListener("pointercancel", onUp);
+    };
+    window.addEventListener("pointermove", onMove);
+    window.addEventListener("pointerup", onUp);
+    window.addEventListener("pointercancel", onUp);
+    e.preventDefault();
+    e.stopPropagation();
   }
 
   document.querySelectorAll("#appDock [data-nav]").forEach((btn) => {

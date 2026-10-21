@@ -18,8 +18,6 @@
 
   window.FOUNCY_TRAINING = {
     blurb: "对手使用极难电脑。尽量一击破门——拖到对方回合会被反打。",
-    /** 新手必须按序打完的简单关 id */
-    tutorialLevelIds: ["e1", "e2", "e3"],
     difficulties: [
       {
         id: "easy",
@@ -50,8 +48,7 @@
         tip: "中路无人。选中间蓝点，对准球往上门推。",
         idealShots: 1,
         focus: "aim",
-        disableCurve: true,
-        teamA: ["suya", "meilaoban", "wuseng"],
+        teamA: ["suya","meilaoban","wuseng"],
         teamB: ["zongcai","modi","habao"],
         layout: {
           ball: { x: W * 0.500, y: L * 0.260 },
@@ -75,8 +72,7 @@
         tip: "再远一点，同样是空走廊。对准球心全力推。",
         idealShots: 1,
         focus: "power",
-        disableCurve: true,
-        teamA: ["meilaoban", "suya", "wuseng"],
+        teamA: ["meilaoban","suya","wuseng"],
         teamB: ["zongcai","modi","habao"],
         layout: {
           ball: { x: W * 0.500, y: L * 0.400 },
@@ -100,21 +96,19 @@
         tip: "直线不好进时：蓄力中用副指左右拉，或按 A / D 拧弧。",
         idealShots: 1,
         focus: "curve",
-        /** 新手前两关禁弧；本关起解锁 */
-        disableCurve: false,
-        teamA: ["meilaoban", "suya", "wuseng"],
-        teamB: ["zongcai", "modi", "habao"],
+        teamA: ["meilaoban","suya","wuseng"],
+        teamB: ["zongcai","modi","habao"],
         layout: {
-          ball: { x: W * 0.735, y: L * 0.326 },
+          ball: { x: W * 0.656, y: L * 0.284 },
           A: [
-            { x: W * 0.524, y: L * 0.675 },
-            { x: W * 0.25, y: L * 0.82 },
-            { x: W * 0.805, y: L * 0.88 },
+            { x: W * 0.149, y: L * 0.455 },
+            { x: W * 0.094, y: L * 0.135 },
+            { x: W * 0.860, y: L * 0.077 }
           ],
           B: [
-            { x: W * 0.862, y: L * 0.763 },
-            { x: W * 0.907, y: L * 0.577 },
-            { x: W * 0.566, y: L * 0.446 },
+            { x: W * 0.904, y: L * 0.203 },
+            { x: W * 0.397, y: L * 0.219 },
+            { x: W * 0.360, y: L * 0.080 }
           ],
         },
       },
