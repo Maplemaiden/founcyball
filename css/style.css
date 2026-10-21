@@ -1,4 +1,4 @@
-:root {
+﻿:root {
   --bg: #0c1610;
   --panel: #15241a;
   --text: #e8f5e9;
@@ -55,7 +55,7 @@ html, body {
   color: var(--text);
 }
 
-/* —— 大厅壳：内容 + 常驻底栏 —— */
+/* 鈥斺€?澶у巺澹筹細鍐呭 + 甯搁┗搴曟爮 鈥斺€?*/
 .lobby {
   --lobby-ink: #1e3a24;
   --lobby-cream: #fff8e7;
@@ -162,7 +162,7 @@ html, body {
   transform: scale(0.94);
 }
 
-/* —— 主页：段位球场场景 —— */
+/* 鈥斺€?涓婚〉锛氭浣嶇悆鍦哄満鏅?鈥斺€?*/
 .screen-home {
   padding: 0;
   overflow: hidden;
@@ -320,7 +320,7 @@ html, body {
   box-shadow: 0 0 0 8px rgba(255, 212, 0, 0.22), 0 0 28px rgba(255, 212, 0, 0.45);
 }
 
-/* 段位球场皮肤 */
+/* 娈典綅鐞冨満鐨偆 */
 .home-stage[data-arena="dirt"] .home-sky {
   background: linear-gradient(180deg, #c9b896 0%, #b8a47a 40%, #9a7b4a 70%, #7a5a32 100%);
 }
@@ -483,7 +483,7 @@ html, body {
   animation: none;
 }
 
-/* —— 联机房间 —— */
+/* 鈥斺€?鑱旀満鎴块棿 鈥斺€?*/
 .screen-online {
   display: flex;
   flex-direction: column;
@@ -736,7 +736,7 @@ html, body {
   font-weight: 600;
 }
 
-/* —— 顶栏 —— */
+/* 鈥斺€?椤舵爮 鈥斺€?*/
 .screen-bar {
   display: flex;
   align-items: center;
@@ -762,7 +762,7 @@ html, body {
 
 .bar-sp { flex: 1; }
 
-/* —— 编队页：上半场固定 / 下滚屏 —— */
+/* 鈥斺€?缂栭槦椤碉細涓婂崐鍦哄浐瀹?/ 涓嬫粴灞?鈥斺€?*/
 .screen-roster {
   display: flex;
   flex-direction: column;
@@ -1063,7 +1063,7 @@ html, body {
   line-height: 1.5;
 }
 
-/* —— 训练页 —— */
+/* 鈥斺€?璁粌椤?鈥斺€?*/
 .screen-train {
   display: flex;
   flex-direction: column;
@@ -1433,7 +1433,7 @@ html, body {
   border-color: transparent transparent transparent #fff8e7;
 }
 
-/* —— 对局 HUD —— */
+/* 鈥斺€?瀵瑰眬 HUD 鈥斺€?*/
 .match-hud {
   display: grid;
   grid-template-columns: 48px 1fr 48px;
@@ -1599,7 +1599,7 @@ html, body {
   background: #e8c36a;
 }
 
-/* —— 底部能量条（紧凑，不挤球场） —— */
+/* 鈥斺€?搴曢儴鑳介噺鏉★紙绱у噾锛屼笉鎸ょ悆鍦猴級 鈥斺€?*/
 .energy-dock {
   flex-shrink: 0;
   padding: 4px 10px 8px;
@@ -1792,7 +1792,7 @@ html, body {
   color: #fff;
 }
 
-/* —— 球员详情抽屉 —— */
+/* 鈥斺€?鐞冨憳璇︽儏鎶藉眽 鈥斺€?*/
 .player-sheet {
   position: fixed;
   inset: 0;
@@ -2148,4 +2148,121 @@ html, body {
 .player-sheet.locked .ps-skill,
 .player-sheet.locked .ps-demo {
   opacity: 0.72;
+}
+
+/* —— 新手聚光引导 —— */
+.tutor-guide {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  padding: 18px 16px calc(18px + var(--safe-bottom));
+  pointer-events: none;
+}
+
+.tutor-guide.hidden {
+  display: none !important;
+}
+
+.tutor-dim {
+  position: absolute;
+  inset: 0;
+  background: rgba(8, 14, 10, 0.72);
+  pointer-events: none;
+}
+
+.tutor-guide.has-hole .tutor-dim {
+  background: transparent;
+}
+
+.tutor-hole {
+  position: absolute;
+  border-radius: 16px;
+  border: 2.5px solid #ffd400;
+  box-shadow: 0 0 0 9999px rgba(8, 14, 10, 0.72);
+  pointer-events: none;
+  display: none;
+}
+
+.tutor-guide.has-hole .tutor-hole {
+  display: block;
+}
+
+.tutor-card {
+  position: relative;
+  z-index: 2;
+  width: min(360px, 100%);
+  pointer-events: auto;
+  background: linear-gradient(180deg, #fff8e7, #f3e7c4);
+  border: 3px solid #2a1f14;
+  border-radius: 18px;
+  box-shadow: 0 4px 0 #2a1f14;
+  padding: 14px 14px 12px;
+  color: #1e3a24;
+}
+
+.tutor-step {
+  font-size: 0.68rem;
+  font-weight: 900;
+  letter-spacing: 0.08em;
+  color: #4a7a55;
+  margin-bottom: 4px;
+}
+
+.tutor-card h3 {
+  margin: 0 0 6px;
+  font-size: 1.05rem;
+  font-weight: 900;
+}
+
+.tutor-card p {
+  margin: 0 0 12px;
+  font-size: 0.86rem;
+  font-weight: 700;
+  line-height: 1.45;
+  color: #2a4a32;
+}
+
+.tutor-ok {
+  width: 100%;
+  border: 2.5px solid #2a1f14;
+  border-radius: 999px;
+  padding: 10px 12px;
+  font-family: inherit;
+  font-size: 0.95rem;
+  font-weight: 900;
+  background: linear-gradient(180deg, #ffe566, #ffd400);
+  color: #1e3a24;
+  box-shadow: 0 3px 0 #2a1f14;
+  cursor: pointer;
+}
+
+.tutor-ok:active {
+  transform: translateY(2px);
+  box-shadow: 0 1px 0 #2a1f14;
+}
+
+.app-dock.tutor-locked .dock-item:not([data-nav="train"]) {
+  opacity: 0.28;
+  pointer-events: none;
+}
+
+.app-dock.tutor-locked .dock-item[data-nav="train"] {
+  opacity: 1;
+}
+
+.tlevel.tutor-locked {
+  opacity: 0.45;
+  filter: grayscale(0.35);
+}
+
+.tlevel.tutor-locked .tlevel-go {
+  background: #c5c5c5;
+}
+
+.screen-train.tutor-mode .train-diff {
+  pointer-events: none;
+  opacity: 0.55;
 }

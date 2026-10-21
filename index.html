@@ -240,6 +240,18 @@
       </div>
     </div>
 
+    <!-- 新手聚光引导：高亮洞（外圈暗）+ 提示卡 -->
+    <div id="tutorGuide" class="tutor-guide hidden" aria-live="polite">
+      <div class="tutor-dim" id="tutorDim" aria-hidden="true"></div>
+      <div class="tutor-hole" id="tutorHole" aria-hidden="true"></div>
+      <div class="tutor-card" role="dialog" aria-labelledby="tutorTitle">
+        <div class="tutor-step" id="tutorStep">1 / 3</div>
+        <h3 id="tutorTitle">新手引导</h3>
+        <p id="tutorText"></p>
+        <button type="button" id="tutorOk" class="tutor-ok">知道了</button>
+      </div>
+    </div>
+
     <!-- 球员详情抽屉 -->
     <div id="playerSheet" class="player-sheet hidden" aria-hidden="true">
       <button type="button" class="player-sheet-backdrop" id="playerSheetBackdrop" aria-label="关闭"></button>

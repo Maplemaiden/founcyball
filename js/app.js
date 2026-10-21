@@ -96,6 +96,50 @@
   /** 退出对局后回到的大厅页 */
   let lobbyReturn = "home";
 
+  /** 当前正在进行的新手关 */
+  let tutorialActiveLevel = null;
+  let tutorStepKey = null;
+  let tutorSeen = Object.create(null);
+
+  const TUTOR_SCRIPTS = {
+    e1: {
+      select: {
+        title: "第一关 · 选人",
+        text: "点选场上中间、靠近足球的蓝方球员。",
+        hole: "stage",
+      },
+      aim: {
+        title: "直线蓄力",
+        text: "向下拖动蓄力，对准球，松手发射撞进上门。本关只能直线，暂时不能拧弧。",
+        hole: "stage",
+      },
+    },
+    e2: {
+      select: {
+        title: "第二关 · 选人",
+        text: "同样点选中间靠近球的蓝方球员。",
+        hole: "stage",
+      },
+      aim: {
+        title: "再远一点",
+        text: "距离更远，可以把力蓄满再松手。本关仍是直线，不能拧弧。",
+        hole: "stage",
+      },
+    },
+    e3: {
+      select: {
+        title: "第三关 · 选人",
+        text: "点选蓝方球员准备进攻。这一关要学会弧线。",
+        hole: "stage",
+      },
+      aim: {
+        title: "解锁弧线",
+        text: "先照常拖动蓄力。再用另一根手指左右滑动拧弧；电脑也可按住 A（左旋）或 D（右旋）。",
+        hole: "stage",
+      },
+    },
+  };
+
   function loadTrainSave() {
     try {
       const raw = localStorage.getItem(TRAIN_SAVE_KEY);
@@ -118,6 +162,117 @@
     try {
       localStorage.setItem(TRAIN_SAVE_KEY, JSON.stringify(data));
     } catch (_) {}
+  }
+
+  function tutorialLevelIds() {
+    const ids = trainingData.tutorialLevelIds;
+    if (Array.isArray(ids) && ids.length) return ids.slice();
+    return (trainingData.levels || [])
+      .filter((lv) => lv.diff === "easy")
+      .map((lv) => lv.id);
+  }
+
+  function isTutorialDone() {
+    return tutorialLevelIds().every((id) => isTrainCleared(id));
+  }
+
+  function getTutorialLevelById(id) {
+    return (trainingData.levels || []).find((lv) => lv.id === id) || null;
+  }
+
+  function getNextTutorialLevel() {
+    for (const id of tutorialLevelIds()) {
+      if (!isTrainCleared(id)) return getTutorialLevelById(id);
+    }
+    return null;
+  }
+
+  function tutorialIndex(id) {
+    const ids = tutorialLevelIds();
+    const i = ids.indexOf(id);
+    return i < 0 ? 0 : i;
+  }
+
+  function syncTutorDockLock() {
+    const dock = document.getElementById("appDock");
+    if (!dock) return;
+    dock.classList.toggle("tutor-locked", !isTutorialDone());
+  }
+
+  function hideTutorGuide() {
+    const el = document.getElementById("tutorGuide");
+    if (!el) return;
+    el.classList.add("hidden");
+    el.classList.remove("has-hole");
+    tutorStepKey = null;
+  }
+
+  function setTutorHole(target) {
+    const guide = document.getElementById("tutorGuide");
+    const hole = document.getElementById("tutorHole");
+    if (!guide || !hole) return;
+    if (!target) {
+      guide.classList.remove("has-hole");
+      return;
+    }
+    const node =
+      target === "stage"
+        ? document.getElementById("stage")
+        : typeof target === "string"
+          ? document.querySelector(target)
+          : target;
+    if (!node) {
+      guide.classList.remove("has-hole");
+      return;
+    }
+    const r = node.getBoundingClientRect();
+    const pad = 8;
+    hole.style.left = `${Math.max(0, r.left - pad)}px`;
+    hole.style.top = `${Math.max(0, r.top - pad)}px`;
+    hole.style.width = `${r.width + pad * 2}px`;
+    hole.style.height = `${r.height + pad * 2}px`;
+    guide.classList.add("has-hole");
+  }
+
+  function showTutorGuide(levelId, stepKey) {
+    const script = TUTOR_SCRIPTS[levelId];
+    const step = script && script[stepKey];
+    const guide = document.getElementById("tutorGuide");
+    if (!step || !guide) return;
+    const seenKey = `${levelId}:${stepKey}`;
+    if (tutorSeen[seenKey]) return;
+
+    tutorStepKey = stepKey;
+    const ids = tutorialLevelIds();
+    const stepEl = document.getElementById("tutorStep");
+    const titleEl = document.getElementById("tutorTitle");
+    const textEl = document.getElementById("tutorText");
+    if (stepEl) {
+      stepEl.textContent = `新手 ${tutorialIndex(levelId) + 1} / ${ids.length}`;
+    }
+    if (titleEl) titleEl.textContent = step.title;
+    if (textEl) textEl.textContent = step.text;
+    guide.classList.remove("hidden");
+    requestAnimationFrame(() => setTutorHole(step.hole || null));
+  }
+
+  function dismissTutorGuide() {
+    if (tutorialActiveLevel && tutorStepKey) {
+      tutorSeen[`${tutorialActiveLevel}:${tutorStepKey}`] = true;
+    }
+    hideTutorGuide();
+  }
+
+  function onTutorialPhase(phase, meta) {
+    if (!tutorialActiveLevel || isTutorialDone()) return;
+    // 电脑回合不弹引导
+    if (meta && meta.aiTeam && meta.turn === meta.aiTeam) {
+      hideTutorGuide();
+      return;
+    }
+    if (phase === "select") showTutorGuide(tutorialActiveLevel, "select");
+    else if (phase === "aim") showTutorGuide(tutorialActiveLevel, "aim");
+    else if (phase === "sim" || phase === "goal" || phase === "over") hideTutorGuide();
   }
 
   function padLine(ids) {
@@ -567,15 +722,27 @@
         : "";
     }
 
+    const tutorOn = !isTutorialDone();
+    ui.screens.train?.classList.toggle("tutor-mode", tutorOn);
+    if (tutorOn) trainUi.diff = "easy";
+
     const levels = (trainingData.levels || []).filter((lv) => lv.diff === trainUi.diff);
     ui.trainList.innerHTML = "";
+    const tutorIds = tutorialLevelIds();
+    const nextTutor = getNextTutorialLevel();
+
     levels.forEach((lv, i) => {
       const cleared = isTrainCleared(lv.id);
+      const tutorIdx = tutorIds.indexOf(lv.id);
+      const lockedByTutor =
+        tutorOn && tutorIdx >= 0 && nextTutor && lv.id !== nextTutor.id && !cleared;
       const btn = document.createElement("button");
       btn.type = "button";
-      btn.className = "tlevel" + (cleared ? " cleared" : "");
+      btn.className =
+        "tlevel" + (cleared ? " cleared" : "") + (lockedByTutor ? " tutor-locked" : "");
       btn.dataset.diff = lv.diff;
       btn.dataset.id = lv.id;
+      if (lockedByTutor) btn.disabled = true;
 
       const body = document.createElement("div");
       body.className = "tlevel-body";
@@ -584,6 +751,7 @@
           <span class="tlevel-idx">关卡 ${String(i + 1).padStart(2, "0")}</span>
           <span class="tlevel-tag ${lv.focus || ""}">${focusTagLabel(lv.focus)}</span>
           ${cleared ? '<span class="tlevel-cleared">已通关</span>' : ""}
+          ${lockedByTutor ? '<span class="tlevel-cleared" style="background:#ddd">未解锁</span>' : ""}
         </div>
         <div class="tlevel-name">${lv.name}</div>
         <div class="tlevel-sub">${lv.subtitle || ""}</div>
@@ -605,17 +773,38 @@
       btn.appendChild(buildMiniPitch(lv.layout));
       btn.appendChild(body);
       btn.appendChild(side);
-      btn.addEventListener("click", () => startTrainingLevel(lv));
+      if (!lockedByTutor) {
+        btn.addEventListener("click", () => startTrainingLevel(lv));
+      }
       ui.trainList.appendChild(btn);
     });
+    syncTutorDockLock();
   }
 
-  function startTrainingLevel(lv) {
+  function startTrainingLevel(lv, opts) {
     if (!lv || !window.FouncyBall) return;
+    const fromTutor = !!(opts && opts.fromTutorial) || !isTutorialDone();
+    const isTutorLv = tutorialLevelIds().includes(lv.id);
+    if (!isTutorialDone() && isTutorLv) {
+      const next = getNextTutorialLevel();
+      if (next && lv.id !== next.id && !isTrainCleared(lv.id)) {
+        lv = next;
+      }
+    }
+
     const teamA = resolveLine(padLine(lv.teamA || window.FOUNCY_DEFAULT_LINEUP_A));
     const teamB = resolveLine(padLine(lv.teamB || window.FOUNCY_DEFAULT_LINEUP_B));
     if (ui.labelA) ui.labelA.textContent = "你";
     if (ui.labelB) ui.labelB.textContent = "极难";
+
+    tutorialActiveLevel = isTutorLv && !isTutorialDone() ? lv.id : null;
+    if (tutorialActiveLevel) {
+      tutorSeen = Object.create(null);
+      if (ui.btnExit) ui.btnExit.textContent = "重试";
+    } else if (ui.btnExit) {
+      ui.btnExit.textContent = "退出";
+    }
+
     show("match");
     requestAnimationFrame(() => {
       window.FouncyBall.start({
@@ -626,8 +815,29 @@
         winScore: 1,
         trainingId: lv.id,
         trainingLayout: lv.layout || null,
+        disableCurve: !!lv.disableCurve,
+        onPhaseChange: (phase) => onTutorialPhase(phase),
         onMatchOver: (winner) => {
+          hideTutorGuide();
           if (winner === "A") markTrainCleared(lv.id);
+          const stillTutor = !isTutorialDone();
+          syncTutorDockLock();
+          if (winner === "A" && stillTutor) {
+            const next = getNextTutorialLevel();
+            if (next) {
+              startTrainingLevel(next, { fromTutorial: true });
+              return;
+            }
+          }
+          if (winner === "A" && !stillTutor && fromTutor) {
+            tutorialActiveLevel = null;
+            if (ui.btnExit) ui.btnExit.textContent = "退出";
+            alert("新手训练完成！现在可以自由探索主页、编队等功能了。");
+            show("home");
+            return;
+          }
+          tutorialActiveLevel = null;
+          if (ui.btnExit) ui.btnExit.textContent = "退出";
           show("train");
         },
       });
@@ -636,6 +846,21 @@
 
   function show(name) {
     closePlayerSheet();
+    hideTutorGuide();
+
+    // 新手未完成：禁止主页 / 编队 / 球探 / 商店 / 联机
+    if (!isTutorialDone()) {
+      const blocked = ["home", "roster", "placeholder", "online"];
+      if (blocked.includes(name)) {
+        const next = getNextTutorialLevel();
+        if (next) {
+          startTrainingLevel(next, { fromTutorial: true });
+          return;
+        }
+        name = "train";
+      }
+    }
+
     const inMatch = name === "match";
     if (ui.lobby) ui.lobby.classList.toggle("hidden", inMatch);
     ui.screens.match.classList.toggle("hidden", !inMatch);
@@ -667,6 +892,7 @@
     if (name !== "match" && window.FouncyBall) {
       window.FouncyBall.stop();
     }
+    syncTutorDockLock();
   }
 
   function currentLine() {
@@ -1276,6 +1502,14 @@
   });
 
   ui.btnExit.addEventListener("click", () => {
+    // 新手中：退出 = 重试当前关，不能回大厅
+    if (!isTutorialDone() && tutorialActiveLevel) {
+      const lv = getTutorialLevelById(tutorialActiveLevel) || getNextTutorialLevel();
+      if (lv) {
+        startTrainingLevel(lv, { fromTutorial: true });
+        return;
+      }
+    }
     if (window.FouncyBall) window.FouncyBall.stop();
     online.matchStarted = false;
     if (isOnline() && online.role) {
@@ -1286,11 +1520,25 @@
     show(lobbyReturn === "match" ? "home" : lobbyReturn || "home");
   });
 
+  const tutorOkBtn = document.getElementById("tutorOk");
+  if (tutorOkBtn) {
+    tutorOkBtn.addEventListener("click", () => dismissTutorGuide());
+  }
+
   if (ui.playerSheetClose) ui.playerSheetClose.addEventListener("click", closePlayerSheet);
   if (ui.playerSheetBackdrop) ui.playerSheetBackdrop.addEventListener("click", closePlayerSheet);
 
   syncHomeModePills();
   renderRankHome();
   renderTrain();
-  show("home");
+  syncTutorDockLock();
+
+  // 新手未完成：直接切入当前简单关
+  if (!isTutorialDone()) {
+    const next = getNextTutorialLevel();
+    if (next) startTrainingLevel(next, { fromTutorial: true });
+    else show("train");
+  } else {
+    show("home");
+  }
 })();

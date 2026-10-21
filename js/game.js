@@ -161,6 +161,10 @@
     winScore: WIN_SCORE,
     /** 比赛结束回调 (winner) => void */
     onMatchOver: null,
+    /** 阶段变化回调 (phase) => void */
+    onPhaseChange: null,
+    /** 新手：强制禁用弧线输入 */
+    curveLocked: false,
     /**
      * 联机本机操控方："A" | "B" | null
      * null = 热座/人机（按原规则）
@@ -1054,6 +1058,16 @@
   function setPhase(phase) {
     state.phase = phase;
     syncUI();
+    if (typeof state.onPhaseChange === "function") {
+      try {
+        state.onPhaseChange(phase, {
+          turn: state.turn,
+          aiTeam: state.aiTeam,
+        });
+      } catch (err) {
+        console.error("onPhaseChange failed", err);
+      }
+    }
     if (phase === "select") queueAiTurn();
   }
 
@@ -1064,7 +1078,9 @@
     const who = teamName(state.turn);
     let aimExtra = "蓄力";
     if (state.phase === "aim") {
-      if (state.curveSign) {
+      if (state.curveLocked) {
+        aimExtra = "蓄力 · 直线";
+      } else if (state.curveSign) {
         const side = state.curveSign < 0 ? "左旋" : "右旋";
         aimExtra = `${side} · R${state.curveRadius.toFixed(0)}`;
       } else {
@@ -1171,8 +1187,9 @@
     );
   }
 
-  /** 弧线属性为 0 / 技能禁用 / 布欧态 → 完全不能拧弧 */
+  /** 弧线属性为 0 / 技能禁用 / 布欧态 / 新手锁弧 → 完全不能拧弧 */
   function playerCanCurve(p) {
+    if (state.curveLocked) return false;
     if (!p || p.isBall || p.disableCurveShot) return false;
     if (skillBlocksCurve(p)) return false;
     if (p.mods && p.mods.curveDisabled) return false;
@@ -2792,12 +2809,13 @@
     }
 
     if (state.phase === "aim" && state.selected) {
-      // 副指：主指蓄力中时，另一指控制弧线
+      // 副指：主指蓄力中时，另一指控制弧线（新手锁弧时忽略）
       if (
         state.dragging &&
         state.primaryPointerId != null &&
         e.pointerId !== state.primaryPointerId
       ) {
+        if (state.curveLocked) return;
         state.curvePointerId = e.pointerId;
         state.curveFromTouch = true;
         updateCurveFromTouch(e.clientX, e.clientY);
@@ -2939,6 +2957,9 @@
       config && config.winScore > 0 ? config.winScore : WIN_SCORE;
     state.onMatchOver =
       config && typeof config.onMatchOver === "function" ? config.onMatchOver : null;
+    state.onPhaseChange =
+      config && typeof config.onPhaseChange === "function" ? config.onPhaseChange : null;
+    state.curveLocked = !!(config && config.disableCurve);
     state.localTeam =
       config && (config.localTeam === "A" || config.localTeam === "B")
         ? config.localTeam

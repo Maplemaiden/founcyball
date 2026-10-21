@@ -18,12 +18,14 @@
 
   window.FOUNCY_TRAINING = {
     blurb: "对手使用极难电脑。尽量一击破门——拖到对方回合会被反打。",
+    /** 新手必须按序打完的简单关 id */
+    tutorialLevelIds: ["e1", "e2", "e3"],
     difficulties: [
       {
         id: "easy",
         name: "简单",
         tag: "开阔",
-        desc: "中路空旷，直线推门即可。",
+        desc: "新手必练：先直线，再学弧线。",
       },
       {
         id: "normal",
@@ -48,7 +50,8 @@
         tip: "中路无人。选中间蓝点，对准球往上门推。",
         idealShots: 1,
         focus: "aim",
-        teamA: ["suya","meilaoban","wuseng"],
+        disableCurve: true,
+        teamA: ["suya", "meilaoban", "wuseng"],
         teamB: ["zongcai","modi","habao"],
         layout: {
           ball: { x: W * 0.500, y: L * 0.260 },
@@ -72,7 +75,8 @@
         tip: "再远一点，同样是空走廊。对准球心全力推。",
         idealShots: 1,
         focus: "power",
-        teamA: ["meilaoban","suya","wuseng"],
+        disableCurve: true,
+        teamA: ["meilaoban", "suya", "wuseng"],
         teamB: ["zongcai","modi","habao"],
         layout: {
           ball: { x: W * 0.500, y: L * 0.400 },
@@ -91,24 +95,26 @@
       {
         id: "e3",
         diff: "easy",
-        name: "贴门轻推",
-        subtitle: "控力练习",
-        tip: "球很靠近上门，中路仍空着。轻轻一碰就进。",
+        name: "绝妙弧线",
+        subtitle: "学会拧弧",
+        tip: "直线不好进时：蓄力中用副指左右拉，或按 A / D 拧弧。",
         idealShots: 1,
-        focus: "touch",
-        teamA: ["habao","meilaoban","wuseng"],
-        teamB: ["zongcai","modi","suya"],
+        focus: "curve",
+        /** 新手前两关禁弧；本关起解锁 */
+        disableCurve: false,
+        teamA: ["meilaoban", "suya", "wuseng"],
+        teamB: ["zongcai", "modi", "habao"],
         layout: {
-          ball: { x: W * 0.500, y: L * 0.140 },
+          ball: { x: W * 0.735, y: L * 0.326 },
           A: [
-            { x: W * 0.500, y: L * 0.320 },
-            { x: W * 0.140, y: L * 0.580 },
-            { x: W * 0.860, y: L * 0.580 }
+            { x: W * 0.524, y: L * 0.675 },
+            { x: W * 0.25, y: L * 0.82 },
+            { x: W * 0.805, y: L * 0.88 },
           ],
           B: [
-            { x: W * 0.080, y: L * 0.220 },
-            { x: W * 0.920, y: L * 0.220 },
-            { x: W * 0.080, y: L * 0.700 }
+            { x: W * 0.862, y: L * 0.763 },
+            { x: W * 0.907, y: L * 0.577 },
+            { x: W * 0.566, y: L * 0.446 },
           ],
         },
       },
