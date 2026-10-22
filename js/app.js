@@ -1207,7 +1207,7 @@
         card.className = "combo-card";
         card.innerHTML = `
           <div class="combo-card-top">
-            <span class="combo-club">${c.clubName || "连携"}</span>
+            <span class="combo-club">${c.tag || "连携"}</span>
             <span class="combo-soon">建设中</span>
           </div>
           <div class="combo-card-name">${c.name}</div>
@@ -1661,11 +1661,9 @@
     btn.type = "button";
     btn.className = "rcard" + (onPitch ? " on-pitch" : "") + (locked ? " locked" : "");
     btn.dataset.playerId = p.id;
-    const clubTiny = !locked && p.clubName ? `<div class="rcard-club">${p.clubName}</div>` : "";
     btn.innerHTML = `
       <div class="rcard-avatar"></div>
       <div class="rcard-name">${p.name}</div>
-      ${clubTiny}
       <div class="rcard-lv">Lv.${p.level || 1}</div>
     `;
     const av = btn.querySelector(".rcard-avatar");
@@ -1711,10 +1709,9 @@
       ui.psRoleText.textContent = [p.role, laneLabel].filter(Boolean).join(" · ");
     }
     if (ui.psBlurb) {
-      const club = !locked && p.clubName ? ` · ${p.clubName}` : "";
       ui.psBlurb.textContent = locked
         ? "尚未获得，可在市场关注转会消息。"
-        : `${p.blurb || ""}${club}`;
+        : p.blurb || "";
     }
 
     if (ui.psAvatar) {
