@@ -18,7 +18,7 @@
     },
     {
       id: "dragon_glide",
-      name: "翩若游龙",
+      name: "翩若惊鸿",
       lane: "fwd",
       desc: "力量+20、弧线+20，持续 1 回合。",
     },
