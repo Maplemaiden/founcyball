@@ -1748,60 +1748,6 @@ html, body {
   font-weight: 700;
 }
 
-.phase-pill {
-  margin: 7px auto 0;
-  display: inline-flex;
-  align-items: center;
-  gap: 7px;
-  max-width: 100%;
-  padding: 4px 12px 4px 8px;
-  border-radius: 999px;
-  font-size: 0.74rem;
-  font-weight: 700;
-  color: #d8f08a;
-  background: rgba(200, 245, 66, 0.1);
-  border: 1px solid rgba(200, 245, 66, 0.28);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-.phase-pill::before {
-  content: "";
-  width: 7px;
-  height: 7px;
-  border-radius: 50%;
-  background: var(--accent);
-  box-shadow: 0 0 0 3px rgba(200, 245, 66, 0.15);
-  flex-shrink: 0;
-}
-
-.phase-pill[data-team="A"] {
-  color: #b6d0ff;
-  background: rgba(61, 123, 253, 0.14);
-  border-color: rgba(61, 123, 253, 0.35);
-}
-
-.phase-pill[data-team="A"]::before {
-  background: #3d7bfd;
-  box-shadow: 0 0 0 3px rgba(61, 123, 253, 0.18);
-}
-
-.phase-pill[data-team="B"] {
-  color: #ffc2bb;
-  background: rgba(231, 76, 60, 0.14);
-  border-color: rgba(231, 76, 60, 0.35);
-}
-
-.phase-pill[data-team="B"]::before {
-  background: #e74c3c;
-  box-shadow: 0 0 0 3px rgba(231, 76, 60, 0.18);
-}
-
-.phase-pill[data-team="neutral"] {
-  color: #d8f08a;
-}
-
 #stage {
   position: relative;
   min-height: 0;
@@ -1954,10 +1900,13 @@ html, body {
   text-align: center;
   border: 0;
   border-radius: 0;
-  background:
-    url("assets/ui/scoreboard-plaque.jpg") center / 100% 100% no-repeat;
-  box-shadow: 0 22px 50px rgba(0, 0, 0, 0.55);
-  filter: drop-shadow(0 0 18px rgba(212, 175, 55, 0.18));
+  background-color: transparent;
+  background-image: url("../assets/ui/scoreboard-plaque.png");
+  background-position: center;
+  background-size: contain;
+  background-repeat: no-repeat;
+  box-shadow: none;
+  filter: drop-shadow(0 14px 28px rgba(0, 0, 0, 0.45));
   transform: scale(0.78) translateY(10px);
   opacity: 0;
   transition: transform 0.4s cubic-bezier(0.2, 1.35, 0.4, 1), opacity 0.28s ease;
@@ -2042,6 +1991,57 @@ html, body {
   text-shadow: 0 1px 3px rgba(0, 0, 0, 0.7);
 }
 
+/* —— 终场高光回放条 —— */
+.highlight-banner {
+  position: fixed;
+  top: calc(12px + env(safe-area-inset-top, 0px));
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 23;
+  pointer-events: none;
+}
+
+.highlight-banner.hidden {
+  display: none;
+}
+
+.highlight-banner-inner {
+  pointer-events: auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 10px 8px 14px;
+  border-radius: 999px;
+  background: rgba(12, 22, 18, 0.78);
+  border: 1px solid rgba(255, 236, 180, 0.35);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.28);
+  backdrop-filter: blur(8px);
+}
+
+.highlight-label {
+  font-size: 0.82rem;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  color: #ffe9a8;
+  white-space: nowrap;
+}
+
+.highlight-skip {
+  appearance: none;
+  border: 1px solid rgba(255, 255, 255, 0.22);
+  background: rgba(255, 255, 255, 0.1);
+  color: #f4f0e4;
+  font-size: 0.78rem;
+  font-weight: 700;
+  padding: 5px 12px;
+  border-radius: 999px;
+  cursor: pointer;
+}
+
+.highlight-skip:active {
+  background: rgba(255, 255, 255, 0.2);
+}
+
 /* —— 终局结算（手绘奖杯牌） —— */
 .result-screen {
   position: fixed;
@@ -2063,10 +2063,13 @@ html, body {
   text-align: center;
   border: 0;
   border-radius: 0;
-  background:
-    url("assets/ui/result-plaque.jpg") center / 100% 100% no-repeat;
-  box-shadow: 0 22px 56px rgba(0, 0, 0, 0.55);
-  filter: drop-shadow(0 0 16px rgba(212, 175, 55, 0.2));
+  background-color: transparent;
+  background-image: url("../assets/ui/result-plaque.png");
+  background-position: center;
+  background-size: contain;
+  background-repeat: no-repeat;
+  box-shadow: none;
+  filter: drop-shadow(0 16px 32px rgba(0, 0, 0, 0.5));
   display: flex;
   flex-direction: column;
   align-items: center;

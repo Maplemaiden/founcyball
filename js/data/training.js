@@ -93,7 +93,7 @@
         diff: "easy",
         name: "绝妙弧线",
         subtitle: "学会拧弧",
-        tip: "直线不好进时：蓄力中用副指左右拉，或按 A / D 拧弧。",
+        tip: "直线不好进时：蓄力中用副指左右拉来拧弧。",
         idealShots: 1,
         focus: "curve",
         teamA: ["meilaoban","suya","wuseng"],

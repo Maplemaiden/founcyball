@@ -27,7 +27,6 @@
   const el = {
     scoreA: document.getElementById("scoreA"),
     scoreB: document.getElementById("scoreB"),
-    phase: document.getElementById("phase"),
     btnRestart: document.getElementById("btnRestart"),
     overlay: document.getElementById("overlay"),
     overlayEyebrow: document.getElementById("overlayEyebrow"),
@@ -48,6 +47,8 @@
     resultMsg: document.getElementById("resultMsg"),
     btnResultRematch: document.getElementById("btnResultRematch"),
     btnResultExit: document.getElementById("btnResultExit"),
+    highlightBanner: document.getElementById("highlightBanner"),
+    btnHighlightSkip: document.getElementById("btnHighlightSkip"),
   };
 
   let fanfareTimers = [];
@@ -62,6 +63,12 @@
   /** 进球慢动作：真实时长 + 物理时间倍率 */
   const GOAL_SLOW_SEC = 0.55;
   const GOAL_SLOW_SCALE = 0.2;
+  /** 终场高光回放：物理时间倍率 + 进球后短暂停顿 */
+  const HIGHLIGHT_SIM_SCALE = 0.62;
+  const HIGHLIGHT_SLOW_SEC = 0.7;
+  const HIGHLIGHT_SLOW_SCALE = 0.22;
+  /** 内部质量阈值（不展示分数）；碰撞权重大 */
+  const HIGHLIGHT_MIN_QUALITY = 55;
 
   let scale = 1;
   let offsetX = 0;
@@ -223,13 +230,25 @@
 
   const state = {
     running: false,
-    phase: "select", // select | aim | sim | goalSlow | goal | over
+    phase: "select", // select | aim | sim | goalSlow | goal | highlight | highlightSlow | over
     /** 进球慢动作剩余真实秒数 */
     goalSlowLeft: 0,
     /** 进球白闪 0~1 */
     goalFlash: 0,
     /** 已判定的得分方（慢放前锁定，避免球被顶出后不算） */
     pendingScorer: null,
+    /** 本场最佳高光（内部质量够线才存；不展示分数） */
+    bestHighlight: null,
+    /** 出手前场地快照，进球后可写入 bestHighlight */
+    shotReplaySnap: null,
+    /** 高光播放中：结算页参数暂存 */
+    highlightResultOpts: null,
+    /** 高光剩余慢放秒数 */
+    highlightSlowLeft: 0,
+    /** 高光仿真已播放真实秒数（超时兜底） */
+    highlightElapsed: 0,
+    /** 高光物理时钟（放慢播放，但步长仍用 STEP，避免轨迹漂移） */
+    highlightPhysAcc: 0,
     turn: "A",
     scoreA: 0,
     scoreB: 0,
@@ -471,6 +490,7 @@
     if (el.overlay && !el.overlay.classList.contains("hidden")) return true;
     if (el.goalFanfare && !el.goalFanfare.classList.contains("hidden")) return true;
     if (el.resultScreen && !el.resultScreen.classList.contains("hidden")) return true;
+    if (state.phase === "highlight" || state.phase === "highlightSlow") return true;
     return false;
   }
 
@@ -846,7 +866,221 @@
       /** 碰球后持续刷新：触发二段时沿此朝向只加大速率 */
       suyaLastDir: null,
       pepeDone: false,
+      /** 球碰墙/门柱次数（高光主权重） */
+      ballWallHits: 0,
+      /** 球碰人次数（首次触球外的额外碰撞权重大） */
+      ballPlayerHits: 0,
+      /** 人撞人且「被撞者之后又碰球」才兑现的次数 */
+      playerPlayerHits: 0,
+      /** 被撞球员 id → 尚未兑现在球上的碰撞次数 */
+      bumpedPending: Object.create(null),
+      startX: shooter ? shooter.x : 0,
+      startY: shooter ? shooter.y : 0,
+      usedCurve: false,
     };
+  }
+
+  /** 仅正式仿真 / 高光仿真计碰撞，慢放与 AI 静默评估不灌水 */
+  function noteShotImpact(kind) {
+    const ctx = state.shotCtx;
+    if (!ctx) return;
+    if (state.phase !== "sim" && state.phase !== "highlight") return;
+    if (kind === "wall") ctx.ballWallHits = (ctx.ballWallHits || 0) + 1;
+    else if (kind === "ballPlayer") ctx.ballPlayerHits = (ctx.ballPlayerHits || 0) + 1;
+  }
+
+  /**
+   * 人撞人：先记下被撞方；只有该人随后碰球才计入 playerPlayerHits。
+   * 被撞判定：有射手参与则另一方为被撞；否则取速度较慢的一方。
+   */
+  function notePlayerPlayerBump(a, b) {
+    const ctx = state.shotCtx;
+    if (!ctx || !a || !b || a.isBall || b.isBall) return;
+    if (state.phase !== "sim" && state.phase !== "highlight") return;
+
+    let victim = null;
+    if (ctx.shooter === a) victim = b;
+    else if (ctx.shooter === b) victim = a;
+    else {
+      const spA = Math.hypot(a.vx, a.vy);
+      const spB = Math.hypot(b.vx, b.vy);
+      if (spA > spB * 1.12) victim = b;
+      else if (spB > spA * 1.12) victim = a;
+      else {
+        // 对撞：双方都可能随后碰球，都记 pending
+        if (!ctx.bumpedPending) ctx.bumpedPending = Object.create(null);
+        ctx.bumpedPending[a.id] = (ctx.bumpedPending[a.id] || 0) + 1;
+        ctx.bumpedPending[b.id] = (ctx.bumpedPending[b.id] || 0) + 1;
+        return;
+      }
+    }
+    if (!victim || !victim.id) return;
+    if (!ctx.bumpedPending) ctx.bumpedPending = Object.create(null);
+    ctx.bumpedPending[victim.id] = (ctx.bumpedPending[victim.id] || 0) + 1;
+  }
+
+  /** 被撞者碰球：兑现人撞人加分 */
+  function resolveBumpedBallTouch(player) {
+    const ctx = state.shotCtx;
+    if (!ctx || !player || player.isBall || !ctx.bumpedPending) return;
+    const n = ctx.bumpedPending[player.id] || 0;
+    if (n <= 0) return;
+    ctx.playerPlayerHits = (ctx.playerPlayerHits || 0) + n;
+    delete ctx.bumpedPending[player.id];
+  }
+
+  function cloneBodiesSnap(list) {
+    return (list || []).map(cloneBodyForSim);
+  }
+
+  function captureShotReplaySnap(p, shot) {
+    state.shotReplaySnap = {
+      bodies: cloneBodiesSnap(state.bodies),
+      shot: {
+        playerId: p.id,
+        aim: { x: shot.aim.x, y: shot.aim.y },
+        power: shot.power,
+        curveSign: shot.curveSign || 0,
+        curveRadius: shot.curveRadius || CURVE_R_MAX,
+        skillArmed: !!shot.skillArmed,
+      },
+    };
+  }
+
+  /**
+   * 内部进球质量（不展示）。碰撞权重大，弧线/距离/技能很低。
+   * @returns {number}
+   */
+  function rateGoalQuality(ctx, ownGoal) {
+    if (!ctx || ownGoal) return 0;
+    const walls = ctx.ballWallHits || 0;
+    const players = ctx.ballPlayerHits || 0;
+    const extraPlayer = Math.max(0, players - 1);
+    const pp = ctx.playerPlayerHits || 0;
+    // 碰撞为主：墙、球再碰人、人撞人；弧线/距离/技能很低
+    let q = walls * 34 + extraPlayer * 28 + pp * 30;
+    if (ctx.usedCurve) q += 7;
+    if (ctx.skillId) q += 5;
+    const L = PITCH.lengthM;
+    const team = ctx.shooter && ctx.shooter.team;
+    const goalY = team === "B" ? L : 0;
+    const d = Math.hypot((ctx.startX || 0) - PITCH.widthM * 0.5, (ctx.startY || 0) - goalY);
+    q += Math.min(9, (d / Math.max(1, L)) * 9);
+    return q;
+  }
+
+  function highlightsEnabled() {
+    // 训练 / 新手 / 联机：不播终场回放
+    if (state.trainingId) return false;
+    if (state.autoRetryOnFail) return false;
+    if (state.localTeam) return false;
+    return true;
+  }
+
+  function considerHighlight(quality, ownGoal) {
+    if (!highlightsEnabled() || ownGoal || quality < HIGHLIGHT_MIN_QUALITY) return;
+    if (!state.shotReplaySnap || !state.shotReplaySnap.bodies || !state.shotReplaySnap.shot) return;
+    const prev = state.bestHighlight;
+    if (prev && prev.quality >= quality) return;
+    state.bestHighlight = {
+      quality,
+      bodies: cloneBodiesSnap(state.shotReplaySnap.bodies),
+      shot: { ...state.shotReplaySnap.shot, aim: { ...state.shotReplaySnap.shot.aim } },
+    };
+  }
+
+  function hideHighlightBanner() {
+    if (el.highlightBanner) {
+      el.highlightBanner.classList.add("hidden");
+      el.highlightBanner.setAttribute("aria-hidden", "true");
+    }
+  }
+
+  function showHighlightBanner() {
+    if (!el.highlightBanner) return;
+    el.highlightBanner.classList.remove("hidden");
+    el.highlightBanner.setAttribute("aria-hidden", "false");
+  }
+
+  function finishHighlightToResult() {
+    const opts = state.highlightResultOpts;
+    state.highlightResultOpts = null;
+    state.highlightSlowLeft = 0;
+    state.pendingScorer = null;
+    state.shotCtx = null;
+    hideHighlightBanner();
+    freezeAll();
+    setPhase("over");
+    if (opts) showResultScreen(opts);
+  }
+
+  function skipHighlightReplay() {
+    if (state.phase !== "highlight" && state.phase !== "highlightSlow") return;
+    finishHighlightToResult();
+  }
+
+  /** 决出比分牌后：有高光则重演出手，再进结算 */
+  function beginHighlightReplay(resultOpts) {
+    const hl = state.bestHighlight;
+    if (!hl || !hl.bodies || !hl.shot || !resultOpts) {
+      showResultScreen(resultOpts);
+      return;
+    }
+    hideGoalFanfare();
+    hideResultScreen();
+    clearAiTimers();
+    clearFx();
+    state.highlightResultOpts = resultOpts;
+    state.bodies = cloneBodiesSnap(hl.bodies);
+    state.selected = null;
+    state.shotCtx = null;
+    state.pendingScorer = null;
+    state.goalSlowLeft = 0;
+    state.goalFlash = 0;
+    state.highlightSlowLeft = 0;
+    state.highlightElapsed = 0;
+    state.highlightPhysAcc = 0;
+    state.dragging = false;
+    resetCurveInput();
+    acc = 0;
+
+    const shot = hl.shot;
+    const p = state.bodies.find((b) => !b.isBall && b.id === shot.playerId);
+    if (!p || p.injuredTurns > 0) {
+      finishHighlightToResult();
+      return;
+    }
+
+    if (shot.skillArmed && p.skill && p.energy >= 1) p.skillArmed = true;
+    else p.skillArmed = false;
+
+    const skillId = applySkillOnShoot(p);
+    beginShotContext(p, skillId);
+    refreshPlayerMods(p);
+
+    const aim = normalize(shot.aim.x, shot.aim.y);
+    const mult = p.mods ? p.mods.powerMult : 1;
+    const power01 = Math.max(0.05, Math.min(1, shot.power || 0));
+    const spd = power01 * MAX_POWER * mult;
+    p.vx = aim.x * spd;
+    p.vy = aim.y * spd;
+
+    if (playerCanCurve(p) && shot.curveSign && shot.curveRadius > 0) {
+      const rMin =
+        p.mods && p.mods.curveRMin != null
+          ? Math.max(CURVE_R_MIN, p.mods.curveRMin)
+          : CURVE_R_MIN;
+      p.curveSign = shot.curveSign;
+      p.curveRadius = Math.max(rMin, shot.curveRadius);
+      if (state.shotCtx) state.shotCtx.usedCurve = true;
+    } else {
+      clearBodyCurve(p);
+    }
+    p.disableCurveShot = false;
+
+    showHighlightBanner();
+    setPhase("highlight");
+    syncEnergyDock();
   }
 
   /** 禁区猎手：碰球后等减速，用当下朝向突然加大速度（方向不变） */
@@ -972,6 +1206,7 @@
       ctx.lastTouchTeam = player.team;
       ctx.lastTouchId = player.id;
       if (ctx.shooter === player) ctx.hitBall = true;
+      resolveBumpedBallTouch(player);
     }
 
     if (player.lane === "fwd") {
@@ -1308,43 +1543,6 @@
   function syncUI() {
     el.scoreA.textContent = String(state.scoreA);
     el.scoreB.textContent = String(state.scoreB);
-
-    const who = teamName(state.turn);
-    let aimExtra = "蓄力";
-    if (state.phase === "aim") {
-      if (state.curveLocked) {
-        aimExtra = "蓄力 · 直线";
-      } else if (state.curveSign) {
-        const side = state.curveSign < 0 ? "左旋" : "右旋";
-        aimExtra = `${side} · R${state.curveRadius.toFixed(0)}`;
-      } else {
-        aimExtra = "蓄力 · 副指加弧";
-      }
-    }
-    const map = {
-      select: isAiTurn()
-        ? state.aiThinking
-          ? `${who} · 思考中`
-          : `${who} · 准备`
-        : state.strollBonus
-          ? `${who} · 闲庭信步·再击`
-          : `${who} · 选人`,
-      aim: isAiTurn()
-        ? `${who} · 出手预览`
-        : state.selected && state.selected.skillArmed
-          ? `${who} · ${state.selected.skill.name}`
-          : `${who} · ${aimExtra}`,
-      sim: "结算中…",
-      goalSlow: "进球！",
-      goal: "进球！",
-      over: "比赛结束",
-    };
-    el.phase.textContent = map[state.phase] || "";
-
-    let pillTeam = "neutral";
-    if (state.phase === "select" || state.phase === "aim") pillTeam = state.turn;
-    else if (state.phase === "goal" || state.phase === "goalSlow") pillTeam = state.turn;
-    el.phase.dataset.team = pillTeam;
     syncEnergyDock();
   }
 
@@ -1680,6 +1878,7 @@
 
   function showResultScreen(opts) {
     hideGoalFanfare();
+    hideHighlightBanner();
     if (!el.resultScreen) return;
     const winner = opts.winner;
     const training = !!state.trainingId;
@@ -1797,12 +1996,14 @@
           b.vx = Math.abs(b.vx) * WALL_BOUNCE;
           clearBodyCurve(b);
           maybeImpactSpark(0, b.y, impact);
+          if (b.isBall) noteShotImpact("wall");
         } else if (b.x + b.r > W) {
           const impact = Math.abs(b.vx);
           b.x = W - b.r;
           b.vx = -Math.abs(b.vx) * WALL_BOUNCE;
           clearBodyCurve(b);
           maybeImpactSpark(W, b.y, impact);
+          if (b.isBall) noteShotImpact("wall");
         }
       }
 
@@ -1818,12 +2019,14 @@
         b.vy = Math.abs(b.vy) * WALL_BOUNCE;
         clearBodyCurve(b);
         maybeImpactSpark(b.x, 0, impact);
+        if (b.isBall) noteShotImpact("wall");
       } else if (!botOpen && b.y + b.r > L) {
         const impact = Math.abs(b.vy);
         b.y = L - b.r;
         b.vy = -Math.abs(b.vy) * WALL_BOUNCE;
         clearBodyCurve(b);
         maybeImpactSpark(b.x, L, impact);
+        if (b.isBall) noteShotImpact("wall");
       }
 
       // 向外球门槽：左右壁 + 后门网（球与球员）
@@ -1850,27 +2053,31 @@
       b.vx = Math.abs(b.vx) * WALL_BOUNCE;
       clearBodyCurve(b);
       maybeImpactSpark(gx0, b.y, impact);
+      if (b.isBall) noteShotImpact("wall");
     } else if (b.x + b.r > gx1) {
       const impact = Math.abs(b.vx);
       b.x = gx1 - b.r;
       b.vx = -Math.abs(b.vx) * WALL_BOUNCE;
       clearBodyCurve(b);
       maybeImpactSpark(gx1, b.y, impact);
+      if (b.isBall) noteShotImpact("wall");
     }
 
-    // 后门网
+    // 后门网：进球后慢放会顶网，不计碰撞（phase 已非 sim）
     if (isTop && b.y - b.r < backY) {
       const impact = Math.abs(b.vy);
       b.y = backY + b.r;
       b.vy = Math.abs(b.vy) * WALL_BOUNCE;
       clearBodyCurve(b);
       maybeImpactSpark(b.x, backY, impact);
+      if (b.isBall) noteShotImpact("wall");
     } else if (!isTop && b.y + b.r > backY) {
       const impact = Math.abs(b.vy);
       b.y = backY - b.r;
       b.vy = -Math.abs(b.vy) * WALL_BOUNCE;
       clearBodyCurve(b);
       maybeImpactSpark(b.x, backY, impact);
+      if (b.isBall) noteShotImpact("wall");
     }
   }
 
@@ -1892,6 +2099,7 @@
         b.vy -= (1 + WALL_BOUNCE) * vn * ny;
         clearBodyCurve(b);
         maybeImpactSpark(px, py, Math.abs(vn));
+        if (b.isBall) noteShotImpact("wall");
       }
     }
   }
@@ -1936,9 +2144,16 @@
         clearBodyCurve(b);
         maybeImpactSpark(a.x + nx * a.r, a.y + ny * a.r, Math.abs(velN));
 
-        if (a.isBall && !b.isBall) onPlayerBallTouch(b, a);
-        else if (b.isBall && !a.isBall) onPlayerBallTouch(a, b);
-        else if (!a.isBall && !b.isBall) onPlayerPlayerHit(a, b);
+        if (a.isBall && !b.isBall) {
+          noteShotImpact("ballPlayer");
+          onPlayerBallTouch(b, a);
+        } else if (b.isBall && !a.isBall) {
+          noteShotImpact("ballPlayer");
+          onPlayerBallTouch(a, b);
+        } else if (!a.isBall && !b.isBall) {
+          notePlayerPlayerBump(a, b);
+          onPlayerPlayerHit(a, b);
+        }
       }
     }
   }
@@ -2047,8 +2262,11 @@
       else state.scoreB += 1;
       const toA = state.scoreA;
       const toB = state.scoreB;
+      const quality = rateGoalQuality(ctx, ownGoal);
+      considerHighlight(quality, ownGoal);
       tickStatusOnTurnEnd(endingTeam);
       state.shotCtx = null;
+      state.shotReplaySnap = null;
 
       // HUD 先停在旧分，等中央牌跳变时再同步
       if (el.scoreA) el.scoreA.textContent = String(fromA);
@@ -2088,7 +2306,7 @@
         onDone: () => {
           if (!state.running) return;
           if (isFinal) {
-            showResultScreen({
+            const resultOpts = {
               winner,
               ownGoal,
               msg: cleared
@@ -2098,7 +2316,12 @@
                   : ownGoal
                     ? `乌龙定胜负！最终比分 ${toA} : ${toB}`
                     : `最终比分 ${toA} : ${toB}`,
-            });
+            };
+            if (state.bestHighlight && highlightsEnabled()) {
+              beginHighlightReplay(resultOpts);
+            } else {
+              showResultScreen(resultOpts);
+            }
             return;
           }
           resetPositions(true, kickOff);
@@ -2165,6 +2388,15 @@
       });
     }
 
+    // 出手前快照（技能/速度尚未改），供终场高光重演
+    captureShotReplaySnap(p, {
+      aim: { x: state.aim.x, y: state.aim.y },
+      power: state.power,
+      curveSign: state.curveSign || 0,
+      curveRadius: state.curveRadius,
+      skillArmed: !!p.skillArmed,
+    });
+
     const skillId = applySkillOnShoot(p);
     beginShotContext(p, skillId);
     refreshPlayerMods(p);
@@ -2176,6 +2408,7 @@
       const { rMin } = selectedCurveLimits();
       p.curveSign = state.curveSign;
       p.curveRadius = Math.max(rMin, state.curveRadius);
+      if (state.shotCtx) state.shotCtx.usedCurve = true;
     } else {
       clearBodyCurve(p);
     }
@@ -2220,6 +2453,9 @@
       // 慢放阶段：加速结束，避免对方等太久
       if (state.phase === "goalSlow") {
         state.goalSlowLeft = 0;
+      }
+      if (state.phase === "highlight" || state.phase === "highlightSlow") {
+        skipHighlightReplay();
       }
       return true;
     }
@@ -2312,6 +2548,7 @@
     hideGoalFanfare();
     hideResultScreen();
     hideOverlay();
+    hideHighlightBanner();
     state.scoreA = 0;
     state.scoreB = 0;
     state.turn = "A";
@@ -2323,6 +2560,10 @@
     state.finger = null;
     state.primaryPointerId = null;
     state.shotCtx = null;
+    state.shotReplaySnap = null;
+    state.bestHighlight = null;
+    state.highlightResultOpts = null;
+    state.highlightSlowLeft = 0;
     state.strollBonus = false;
     state.goalSlowLeft = 0;
     state.goalFlash = 0;
@@ -3367,6 +3608,74 @@
         freezeAll();
         afterSim();
       }
+    } else if (state.phase === "highlight") {
+      // 放慢的是「播放速度」：物理步长必须与实战同为 STEP，否则轨迹会漂到不进球
+      state.highlightElapsed = (state.highlightElapsed || 0) + dt;
+      state.highlightPhysAcc = (state.highlightPhysAcc || 0) + dt * HIGHLIGHT_SIM_SCALE;
+      acc = 0;
+      let scored = null;
+      while (state.highlightPhysAcc >= STEP) {
+        const bb = ball();
+        const prevX = bb ? bb.x : null;
+        const prevY = bb ? bb.y : null;
+        integrate(STEP);
+        scored = checkGoalSweep(prevX, prevY);
+        collideBodies();
+        if (!scored) scored = checkGoal();
+        collideWalls();
+        tickSuyaBite();
+        if (!scored) scored = checkGoal();
+        state.highlightPhysAcc -= STEP;
+        if (scored) break;
+      }
+      const suyaWaiting =
+        state.shotCtx &&
+        state.shotCtx.suyaBitePending &&
+        !state.shotCtx.suyaBiteDone;
+      if (scored) {
+        state.highlightPhysAcc = 0;
+        state.pendingScorer = scored;
+        pinBallInGoal(scored);
+        const bb = ball();
+        const L = PITCH.lengthM;
+        if (bb) {
+          spawnGoalBurst(
+            bb.x,
+            scored === "A" ? Math.min(bb.y, 0) : Math.max(bb.y, L),
+            scored
+          );
+        }
+        state.highlightSlowLeft = HIGHLIGHT_SLOW_SEC;
+        state.goalFlash = 1;
+        setPhase("highlightSlow");
+      } else if (
+        (allSlowEnough() && !suyaWaiting) ||
+        state.highlightElapsed > 22
+      ) {
+        // 重演未进球 / 超时：直接进结算
+        state.highlightPhysAcc = 0;
+        freezeAll();
+        finishHighlightToResult();
+      }
+    } else if (state.phase === "highlightSlow") {
+      while (acc >= STEP) {
+        const slowStep = STEP * HIGHLIGHT_SLOW_SCALE;
+        integrate(slowStep);
+        collideBodies();
+        collideWalls();
+        tickSuyaBite();
+        pinBallInGoal(state.pendingScorer);
+        state.highlightSlowLeft -= STEP;
+        state.goalFlash = Math.max(0, state.goalFlash - STEP * 1.8);
+        acc -= STEP;
+        if (state.highlightSlowLeft <= 0) break;
+      }
+      if (state.highlightSlowLeft <= 0) {
+        acc = 0;
+        state.goalFlash = 0;
+        freezeAll();
+        finishHighlightToResult();
+      }
     } else {
       acc = 0;
       if (state.goalFlash > 0) {
@@ -3384,6 +3693,8 @@
     if (
       state.phase === "goal" ||
       state.phase === "goalSlow" ||
+      state.phase === "highlight" ||
+      state.phase === "highlightSlow" ||
       state.phase === "over" ||
       state.phase === "sim"
     ) {
@@ -3548,6 +3859,11 @@
         restartMatch();
       });
     }
+    if (el.btnHighlightSkip) {
+      el.btnHighlightSkip.addEventListener("click", () => {
+        skipHighlightReplay();
+      });
+    }
     window.addEventListener("resize", () => {
       if (state.running) resize();
     });
@@ -3607,6 +3923,7 @@
     hideOverlay();
     hideGoalFanfare();
     hideResultScreen();
+    hideHighlightBanner();
     restartMatch();
     resize();
     last = performance.now();
@@ -3621,7 +3938,11 @@
     clearFanfareTimers();
     hideGoalFanfare();
     hideResultScreen();
+    hideHighlightBanner();
     hideOverlay();
+    state.bestHighlight = null;
+    state.shotReplaySnap = null;
+    state.highlightResultOpts = null;
     if (rafId) {
       cancelAnimationFrame(rafId);
       rafId = 0;

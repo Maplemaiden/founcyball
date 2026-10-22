@@ -68,7 +68,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Nunito:wght@700;800;900&display=swap" rel="stylesheet" />
-  <link rel="stylesheet" href="css/style.css?v=20261022sync" />
+  <link rel="stylesheet" href="css/style.css?v=20261022hl" />
 </head>
 <body>
   <!-- 放在 #app 外，保证首屏立刻盖住，不依赖后续脚本 -->
@@ -357,7 +357,6 @@
               <span class="chip" id="labelB">红</span>
             </div>
           </div>
-          <div id="phase" class="phase-pill" data-team="A">蓝方 · 选人</div>
         </div>
         <div class="hud-right">
           <button type="button" id="btnTutorReplay" class="hud-btn tutor-replay-btn hidden" aria-label="再看操作">再看</button>
@@ -414,6 +413,14 @@
           <span class="gf-num side-b" id="gfScoreB">0</span>
         </div>
         <p id="gfMsg" class="gf-msg">蓝方进球</p>
+      </div>
+    </div>
+
+    <!-- 终场高光回放（无评分数字） -->
+    <div id="highlightBanner" class="highlight-banner hidden" aria-hidden="true">
+      <div class="highlight-banner-inner">
+        <span class="highlight-label">本场精彩回放</span>
+        <button type="button" id="btnHighlightSkip" class="highlight-skip">跳过</button>
       </div>
     </div>
 
@@ -572,10 +579,10 @@
   <script src="js/data/players.js?v=20261022avatars"></script>
   <script src="js/data/skills.js?v=20261022avatars"></script>
   <script src="js/data/ranks.js?v=20261022avatars"></script>
-  <script src="js/data/training.js?v=20261022avatars"></script>
+  <script src="js/data/training.js?v=20261022mobile"></script>
   <script src="js/ai.js?v=20261022avatars"></script>
-  <script src="js/game.js?v=20261022avatars"></script>
+  <script src="js/game.js?v=20261022hl4"></script>
   <script src="js/net.js?v=20261022avatars"></script>
-  <script src="js/app.js?v=20261022avatars"></script>
+  <script src="js/app.js?v=20261022mobile"></script>
 </body>
 </html>
