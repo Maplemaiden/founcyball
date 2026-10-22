@@ -68,7 +68,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Nunito:wght@700;800;900&display=swap" rel="stylesheet" />
-  <link rel="stylesheet" href="css/style.css?v=20261021pos" />
+  <link rel="stylesheet" href="css/style.css?v=20261022sync" />
 </head>
 <body>
   <!-- 放在 #app 外，保证首屏立刻盖住，不依赖后续脚本 -->
@@ -223,21 +223,10 @@
         <!-- 训练：难度 + 关卡列表 -->
         <section id="screen-train" class="screen screen-train hidden">
           <header class="train-head">
-            <div>
-              <h2>训练</h2>
-              <p class="train-sub">极难对手 · 尽量一击破门</p>
-            </div>
-            <span class="train-chip" id="trainLevelCount">9 关</span>
+            <h2>训练</h2>
           </header>
 
-          <div class="train-banner" role="note">
-            <span class="train-banner-ico" aria-hidden="true"></span>
-            <p id="trainBlurb">对手使用极难电脑。尽量一击破门——拖到对方回合会被反打。</p>
-          </div>
-
           <div class="train-diff" id="trainDiff" role="tablist" aria-label="训练难度"></div>
-
-          <div class="train-diff-desc" id="trainDiffDesc"></div>
 
           <div class="train-scroll" id="trainScroll">
             <div class="train-list" id="trainList"></div>
@@ -310,7 +299,10 @@
           </div>
           <div id="phase" class="phase-pill" data-team="A">蓝方 · 选人</div>
         </div>
-        <button id="btnRestart" type="button" class="hud-btn" aria-label="重开">重开</button>
+        <div class="hud-right">
+          <button type="button" id="btnTutorReplay" class="hud-btn tutor-replay-btn hidden" aria-label="再看操作">再看</button>
+          <button id="btnRestart" type="button" class="hud-btn" aria-label="重开">重开</button>
+        </div>
       </header>
       <main id="stage">
         <canvas id="game"></canvas>
@@ -361,7 +353,7 @@
       </div>
     </div>
 
-    <!-- 新手聚光引导：高亮洞（外圈暗）+ 提示卡 -->
+    <!-- 新手聚光引导（仅第一关）：高亮洞 + 提示卡 -->
     <div id="tutorGuide" class="tutor-guide hidden" aria-live="polite">
       <div class="tutor-dim" id="tutorDim" aria-hidden="true"></div>
       <div class="tutor-hole" id="tutorHole" aria-hidden="true"></div>
@@ -370,6 +362,50 @@
         <h3 id="tutorTitle">新手引导</h3>
         <p id="tutorText"></p>
         <button type="button" id="tutorOk" class="tutor-ok">知道了</button>
+      </div>
+    </div>
+
+    <!-- 第 2/3 关进关操作动画（居中大卡，可重复观看） -->
+    <div id="tutorIntro" class="tutor-intro hidden" aria-hidden="true">
+      <div class="tutor-intro-backdrop" aria-hidden="true"></div>
+      <div class="tutor-intro-card" role="dialog" aria-labelledby="tutorIntroTitle">
+        <div class="tutor-step" id="tutorIntroStep">新手</div>
+        <h3 id="tutorIntroTitle">操作示意</h3>
+        <p id="tutorIntroText"></p>
+        <div class="tutor-demo" id="tutorIntroDemo">
+          <div class="td-panel td-power hidden" data-demo="powerPull" aria-hidden="true">
+            <div class="td-screen">
+              <div class="td-ball"></div>
+              <div class="td-straight-path"></div>
+              <div class="td-hand td-hand-main td-hand-solo">
+                <div class="td-finger"></div>
+                <div class="td-trail td-trail-v"></div>
+              </div>
+            </div>
+            <div class="td-legend">
+              <span class="td-leg td-leg-main"><i></i>主指 · 按住向下拉满再松手</span>
+            </div>
+          </div>
+          <div class="td-panel td-curve hidden" data-demo="curveHands" aria-hidden="true">
+            <div class="td-screen">
+              <div class="td-ball"></div>
+              <div class="td-arc-path"></div>
+              <div class="td-hand td-hand-main">
+                <div class="td-finger"></div>
+                <div class="td-trail td-trail-v"></div>
+              </div>
+              <div class="td-hand td-hand-side">
+                <div class="td-finger"></div>
+                <div class="td-trail td-trail-h"></div>
+              </div>
+            </div>
+            <div class="td-legend">
+              <span class="td-leg td-leg-main"><i></i>主指 · 按住下拉蓄力（别松）</span>
+              <span class="td-leg td-leg-side"><i></i>副指 · 左右滑动拧弧</span>
+            </div>
+          </div>
+        </div>
+        <button type="button" id="tutorIntroOk" class="tutor-ok">开始练习</button>
       </div>
     </div>
 
@@ -440,13 +476,13 @@
   </div>
 
   <script src="https://unpkg.com/peerjs@1.5.4/dist/peerjs.min.js"></script>
-  <script src="js/data/physics.js?v=20261021pos"></script>
-  <script src="js/data/players.js?v=20261021pos"></script>
-  <script src="js/data/ranks.js?v=20261021pos"></script>
-  <script src="js/data/training.js?v=20261021pos"></script>
-  <script src="js/ai.js?v=20261021pos"></script>
-  <script src="js/game.js?v=20261021pos"></script>
-  <script src="js/net.js?v=20261021pos"></script>
-  <script src="js/app.js?v=20261021pos"></script>
+  <script src="js/data/physics.js?v=20261022sync"></script>
+  <script src="js/data/players.js?v=20261022sync"></script>
+  <script src="js/data/ranks.js?v=20261022sync"></script>
+  <script src="js/data/training.js?v=20261022sync"></script>
+  <script src="js/ai.js?v=20261022sync"></script>
+  <script src="js/game.js?v=20261022sync"></script>
+  <script src="js/net.js?v=20261022sync"></script>
+  <script src="js/app.js?v=20261022sync"></script>
 </body>
 </html>

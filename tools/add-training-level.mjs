@@ -3,7 +3,10 @@
  *
  * 用法：
  *   node tools/add-training-level.mjs tools/_last-level.json
- *   node tools/add-training-level.mjs path/to/level.json --no-verify
+ *   node tools/add-training-level.mjs path/to/level.json --verify
+ *
+ * 默认不跑极难人机验关（作者手搓关卡即可）。需要可解性检测时加 --verify。
+ * 兼容旧参数 --no-verify（等同默认行为）。
  *
  * 编辑器：
  *   先开本地服务：python -m http.server 5173
@@ -19,12 +22,14 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const root = path.join(__dirname, "..");
 const trainingPath = path.join(root, "js", "data", "training.js");
 
-const args = process.argv.slice(2).filter((a) => a !== "--no-verify");
-const noVerify = process.argv.includes("--no-verify");
+const args = process.argv
+  .slice(2)
+  .filter((a) => a !== "--no-verify" && a !== "--verify");
+const doVerify = process.argv.includes("--verify");
 const jsonPath = args[0];
 
 if (!jsonPath) {
-  console.error("用法: node tools/add-training-level.mjs <level.json> [--no-verify]");
+  console.error("用法: node tools/add-training-level.mjs <level.json> [--verify]");
   process.exit(1);
 }
 
@@ -66,8 +71,8 @@ fs.writeFileSync(trainingPath, out, "utf8");
 console.log(`[${action}] ${level.diff}/${level.id}「${level.name}」→ js/data/training.js`);
 console.log(`当前共 ${data.levels.length} 关`);
 
-if (!noVerify) {
-  console.log("\n运行可解性检测…");
+if (doVerify) {
+  console.log("\n运行可解性检测（极难搜索）…");
   const r = spawnSync(process.execPath, [path.join(__dirname, "verify-training.mjs")], {
     cwd: root,
     encoding: "utf8",
@@ -77,6 +82,8 @@ if (!noVerify) {
     console.error("\n检测未全部通过。关卡已写入，请用编辑器调整站位后再 add。");
     process.exitCode = 1;
   }
+} else {
+  console.log("已跳过可解性检测（需要时加 --verify）");
 }
 
 function validateLevel(lv) {

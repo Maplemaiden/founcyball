@@ -1630,12 +1630,18 @@ html, body {
 /* 鈥斺€?瀵瑰眬 HUD 鈥斺€?*/
 .match-hud {
   display: grid;
-  grid-template-columns: 48px 1fr 48px;
+  grid-template-columns: 48px 1fr auto;
   align-items: center;
   gap: 6px;
   padding: 10px 10px 8px;
   background:
     linear-gradient(180deg, rgba(12, 22, 16, 0.92) 0%, rgba(12, 22, 16, 0.55) 70%, transparent 100%);
+}
+
+.hud-right {
+  display: flex;
+  align-items: center;
+  gap: 4px;
 }
 
 .hud-btn {
@@ -2417,6 +2423,335 @@ html, body {
   font-weight: 700;
   line-height: 1.45;
   color: #2a4a32;
+}
+
+/* 进关操作示意：居中遮罩 */
+.tutor-intro {
+  position: fixed;
+  inset: 0;
+  z-index: 70;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 18px 16px calc(18px + var(--safe-bottom));
+  pointer-events: auto;
+}
+
+.tutor-intro.hidden {
+  display: none !important;
+}
+
+.tutor-intro-backdrop {
+  position: absolute;
+  inset: 0;
+  background: rgba(8, 14, 10, 0.78);
+}
+
+.tutor-intro-card {
+  position: relative;
+  z-index: 2;
+  width: min(400px, 100%);
+  background: linear-gradient(180deg, #fff8e7, #f3e7c4);
+  border: 3px solid #2a1f14;
+  border-radius: 20px;
+  box-shadow: 0 6px 0 #2a1f14;
+  padding: 16px 14px 14px;
+  color: #1e3a24;
+}
+
+.tutor-intro-card h3 {
+  margin: 0 0 6px;
+  font-size: 1.12rem;
+  font-weight: 900;
+}
+
+.tutor-intro-card > p {
+  margin: 0 0 12px;
+  font-size: 0.86rem;
+  font-weight: 700;
+  line-height: 1.45;
+  color: #2a4a32;
+}
+
+.tutor-replay-btn.hidden {
+  display: none !important;
+}
+
+.tutor-demo {
+  margin: 0 0 12px;
+}
+
+.tutor-demo.hidden,
+.td-panel.hidden {
+  display: none !important;
+}
+
+.td-panel {
+  border: 2px solid rgba(42, 31, 20, 0.35);
+  border-radius: 14px;
+  background: linear-gradient(180deg, #2a6b3c 0%, #1e5230 100%);
+  overflow: hidden;
+  padding: 10px 10px 8px;
+}
+
+.td-screen {
+  position: relative;
+  height: 168px;
+  border-radius: 12px;
+  background:
+    radial-gradient(circle at 50% 28%, rgba(255, 255, 255, 0.12), transparent 42%),
+    repeating-linear-gradient(0deg, #348f4c 0 12px, #2f8f48 12px 24px);
+  border: 1.5px solid rgba(255, 255, 255, 0.22);
+  overflow: hidden;
+}
+
+.td-ball {
+  position: absolute;
+  left: 50%;
+  top: 22%;
+  width: 14px;
+  height: 14px;
+  margin: -7px 0 0 -7px;
+  border-radius: 50%;
+  background: radial-gradient(circle at 35% 30%, #fff, #e8e8e8 45%, #bbb);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.35);
+  z-index: 1;
+}
+
+.td-arc-path {
+  position: absolute;
+  left: 14%;
+  right: 14%;
+  top: 16%;
+  bottom: 36%;
+  border: 2.5px dashed rgba(200, 245, 66, 0.85);
+  border-bottom: 0;
+  border-radius: 50% 50% 0 0 / 100% 100% 0 0;
+  opacity: 0.9;
+  animation: td-arc-pulse 2.4s ease-in-out infinite;
+  pointer-events: none;
+}
+
+.td-straight-path {
+  position: absolute;
+  left: 50%;
+  top: 22%;
+  bottom: 28%;
+  width: 0;
+  border-left: 2.5px dashed rgba(200, 245, 66, 0.9);
+  transform: translateX(-50%);
+  animation: td-arc-pulse 2.4s ease-in-out infinite;
+  pointer-events: none;
+}
+
+.td-straight-path::after {
+  content: "";
+  position: absolute;
+  left: -6px;
+  top: -2px;
+  border: 6px solid transparent;
+  border-bottom-color: rgba(200, 245, 66, 0.95);
+}
+
+.td-hand {
+  position: absolute;
+  z-index: 3;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  pointer-events: none;
+}
+
+.td-finger {
+  width: 28px;
+  height: 36px;
+  border-radius: 14px 14px 18px 18px;
+  border: 2px solid rgba(42, 31, 20, 0.55);
+  background: linear-gradient(180deg, #ffe0c2, #f0b48a);
+  box-shadow: 0 3px 0 rgba(0, 0, 0, 0.2);
+  position: relative;
+}
+
+.td-finger::after {
+  content: "";
+  position: absolute;
+  left: 50%;
+  top: 10px;
+  width: 10px;
+  height: 10px;
+  margin-left: -5px;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.45);
+}
+
+.td-trail {
+  position: absolute;
+  pointer-events: none;
+  opacity: 0.85;
+}
+
+.td-trail-v {
+  left: 50%;
+  top: 38px;
+  width: 0;
+  height: 36px;
+  border-left: 2px dashed rgba(255, 230, 90, 0.95);
+  transform: translateX(-50%);
+}
+
+.td-trail-v::after {
+  content: "";
+  position: absolute;
+  left: -5px;
+  bottom: -2px;
+  border: 5px solid transparent;
+  border-top-color: rgba(255, 230, 90, 0.95);
+}
+
+.td-trail-h {
+  top: 50%;
+  left: -22px;
+  width: 72px;
+  height: 0;
+  border-top: 2px dashed rgba(120, 190, 255, 0.95);
+  transform: translateY(-50%);
+}
+
+.td-trail-h::before,
+.td-trail-h::after {
+  content: "";
+  position: absolute;
+  top: -5px;
+  border: 5px solid transparent;
+}
+
+.td-trail-h::before {
+  left: -2px;
+  border-right-color: rgba(120, 190, 255, 0.95);
+}
+
+.td-trail-h::after {
+  right: -2px;
+  border-left-color: rgba(120, 190, 255, 0.95);
+}
+
+/* 主指：按在球员附近，向下拉蓄力 */
+.td-hand-main {
+  left: 50%;
+  top: 40%;
+  margin-left: -14px;
+  animation: td-pull 2.4s ease-in-out infinite;
+}
+
+.td-hand-solo {
+  top: 38%;
+}
+
+.td-hand-main .td-finger {
+  box-shadow: 0 0 0 3px rgba(255, 230, 90, 0.55), 0 3px 0 rgba(0, 0, 0, 0.2);
+}
+
+/* 副指：侧方左右拧弧 */
+.td-hand-side {
+  left: 70%;
+  top: 46%;
+  animation: td-swipe 2.4s ease-in-out infinite;
+}
+
+.td-hand-side .td-finger {
+  box-shadow: 0 0 0 3px rgba(120, 190, 255, 0.55), 0 3px 0 rgba(0, 0, 0, 0.2);
+}
+
+.td-legend {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-top: 8px;
+  padding: 0 2px 2px;
+}
+
+.td-leg {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.72rem;
+  font-weight: 800;
+  color: #f4ffe8;
+  letter-spacing: 0.02em;
+}
+
+.td-leg i {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  flex-shrink: 0;
+  box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.25);
+}
+
+.td-leg-main i {
+  background: #ffe65a;
+}
+
+.td-leg-side i {
+  background: #78beff;
+}
+
+@keyframes td-pull {
+  0%,
+  12% {
+    transform: translateY(0);
+  }
+  45%,
+  58% {
+    transform: translateY(28px);
+  }
+  88%,
+  100% {
+    transform: translateY(0);
+  }
+}
+
+@keyframes td-swipe {
+  0%,
+  18% {
+    transform: translateX(0);
+  }
+  40% {
+    transform: translateX(-22px);
+  }
+  62% {
+    transform: translateX(22px);
+  }
+  82%,
+  100% {
+    transform: translateX(0);
+  }
+}
+
+@keyframes td-arc-pulse {
+  0%,
+  100% {
+    opacity: 0.35;
+    transform: scaleX(0.92);
+  }
+  50% {
+    opacity: 1;
+    transform: scaleX(1);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .td-hand-main,
+  .td-hand-side,
+  .td-arc-path {
+    animation: none;
+  }
+  .td-hand-main {
+    transform: translateY(14px);
+  }
+  .td-hand-side {
+    transform: translateX(10px);
+  }
 }
 
 .tutor-ok {

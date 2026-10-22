@@ -65,11 +65,8 @@
     rankCups: document.getElementById("rankCups"),
     arenaName: document.getElementById("arenaName"),
     arenaSub: document.getElementById("arenaSub"),
-    trainBlurb: document.getElementById("trainBlurb"),
     trainDiff: document.getElementById("trainDiff"),
-    trainDiffDesc: document.getElementById("trainDiffDesc"),
     trainList: document.getElementById("trainList"),
-    trainLevelCount: document.getElementById("trainLevelCount"),
     playerSheet: document.getElementById("playerSheet"),
     psAvatar: document.getElementById("psAvatar"),
     psName: document.getElementById("psName"),
@@ -105,6 +102,7 @@
   let tutorStepKey = null;
   let tutorSeen = Object.create(null);
 
+  /** 仅第一关保留聚光点选/蓄力文字引导 */
   const TUTOR_SCRIPTS = {
     e1: {
       select: {
@@ -118,30 +116,19 @@
         hole: "stage",
       },
     },
+  };
+
+  /** 第 2/3 关：进关居中播放操作动画（可重复观看） */
+  const TUTOR_INTROS = {
     e2: {
-      select: {
-        title: "第二关 · 选人",
-        text: "同样点选中间靠近球的蓝方球员。",
-        hole: "stage",
-      },
-      aim: {
-        title: "再远一点",
-        text: "距离更远，可以把力蓄满再松手。本关仍是直线，不能拧弧。",
-        hole: "stage",
-      },
+      title: "第二关 · 蓄满再射",
+      text: "距离更远了。主指按住球员向下拉满，松手直线撞门。本关仍不能拧弧。",
+      demo: "powerPull",
     },
     e3: {
-      select: {
-        title: "第三关 · 选人",
-        text: "点选蓝方球员准备进攻。这一关要学会弧线。",
-        hole: "stage",
-      },
-      aim: {
-        title: "解锁弧线",
-        text: "看下面演示：主指按住球员向下拉蓄力（别松），同时用另一根手指在旁边左右滑来拧弧。电脑可用 A / D。",
-        hole: "stage",
-        demo: "curveHands",
-      },
+      title: "第三关 · 学会弧线",
+      text: "主指按住球员向下拉蓄力（先别松），同时用另一根手指在旁边左右滑来拧弧。电脑可用 A / D。",
+      demo: "curveHands",
     },
   };
 
@@ -210,19 +197,53 @@
     el.classList.add("hidden");
     el.classList.remove("has-hole");
     tutorStepKey = null;
-    const demo = document.getElementById("tutorDemo");
-    if (demo) {
-      demo.classList.add("hidden");
-      demo.setAttribute("aria-hidden", "true");
-    }
   }
 
-  function syncTutorDemo(demoKind) {
-    const demo = document.getElementById("tutorDemo");
-    if (!demo) return;
-    const show = demoKind === "curveHands";
-    demo.classList.toggle("hidden", !show);
-    demo.setAttribute("aria-hidden", show ? "false" : "true");
+  function hideTutorIntro() {
+    const el = document.getElementById("tutorIntro");
+    if (!el) return;
+    el.classList.add("hidden");
+    el.setAttribute("aria-hidden", "true");
+  }
+
+  function syncTutorReplayBtn() {
+    const btn = document.getElementById("btnTutorReplay");
+    if (!btn) return;
+    const show = !!(tutorialActiveLevel && TUTOR_INTROS[tutorialActiveLevel]);
+    btn.classList.toggle("hidden", !show);
+  }
+
+  function setTutorIntroDemo(demoKind) {
+    document.querySelectorAll("#tutorIntroDemo .td-panel").forEach((panel) => {
+      const on = panel.getAttribute("data-demo") === demoKind;
+      panel.classList.toggle("hidden", !on);
+      panel.setAttribute("aria-hidden", on ? "false" : "true");
+    });
+  }
+
+  function showTutorIntro(levelId) {
+    const intro = TUTOR_INTROS[levelId];
+    const el = document.getElementById("tutorIntro");
+    if (!intro || !el) return;
+    const stepEl = document.getElementById("tutorIntroStep");
+    const titleEl = document.getElementById("tutorIntroTitle");
+    const textEl = document.getElementById("tutorIntroText");
+    const ids = tutorialLevelIds();
+    if (stepEl) {
+      stepEl.textContent = `新手 ${tutorialIndex(levelId) + 1} / ${ids.length}`;
+    }
+    if (titleEl) titleEl.textContent = intro.title;
+    if (textEl) textEl.textContent = intro.text;
+    setTutorIntroDemo(intro.demo);
+    el.classList.remove("hidden");
+    el.setAttribute("aria-hidden", "false");
+    // 重启动画：强制重排
+    el.querySelectorAll(".td-hand, .td-arc-path, .td-straight-path").forEach((node) => {
+      node.style.animation = "none";
+      // eslint-disable-next-line no-unused-expressions
+      node.offsetHeight;
+      node.style.animation = "";
+    });
   }
 
   function setTutorHole(target) {
@@ -270,7 +291,6 @@
     }
     if (titleEl) titleEl.textContent = step.title;
     if (textEl) textEl.textContent = step.text;
-    syncTutorDemo(step.demo || null);
     guide.classList.remove("hidden");
     requestAnimationFrame(() => setTutorHole(step.hole || null));
   }
@@ -284,6 +304,11 @@
 
   function onTutorialPhase(phase, meta) {
     if (!tutorialActiveLevel || isTutorialDone()) return;
+    // 第 2/3 关只用进关动画，不再弹点选/蓄力卡
+    if (TUTOR_INTROS[tutorialActiveLevel]) {
+      if (phase === "sim" || phase === "goal" || phase === "over") hideTutorGuide();
+      return;
+    }
     // 电脑回合不弹引导
     if (meta && meta.aiTeam && meta.turn === meta.aiTeam) {
       hideTutorGuide();
@@ -1105,10 +1130,6 @@
 
   function renderTrain() {
     if (!ui.trainDiff || !ui.trainList) return;
-    if (ui.trainBlurb) ui.trainBlurb.textContent = trainingData.blurb || "";
-    if (ui.trainLevelCount) {
-      ui.trainLevelCount.textContent = `${(trainingData.levels || []).length} 关`;
-    }
 
     ui.trainDiff.innerHTML = "";
     (trainingData.difficulties || []).forEach((d) => {
@@ -1125,13 +1146,6 @@
       });
       ui.trainDiff.appendChild(btn);
     });
-
-    const diffMeta = (trainingData.difficulties || []).find((d) => d.id === trainUi.diff);
-    if (ui.trainDiffDesc) {
-      ui.trainDiffDesc.textContent = diffMeta
-        ? `${diffMeta.tag || ""} · ${diffMeta.desc || ""}`
-        : "";
-    }
 
     const tutorOn = !isTutorialDone();
     ui.screens.train?.classList.toggle("tutor-mode", tutorOn);
@@ -1164,9 +1178,7 @@
           ${cleared ? '<span class="tlevel-cleared">已通关</span>' : ""}
           ${lockedByTutor ? '<span class="tlevel-cleared" style="background:#ddd">未解锁</span>' : ""}
         </div>
-        <div class="tlevel-name">${lv.name}</div>
-        <div class="tlevel-sub">${lv.subtitle || ""}</div>
-        <p class="tlevel-tip">${lv.tip || ""}</p>
+        <div class="tlevel-name">${lv.name || ""}</div>
       `;
 
       const side = document.createElement("div");
@@ -1215,6 +1227,7 @@
     } else if (ui.btnExit) {
       ui.btnExit.textContent = "退出";
     }
+    syncTutorReplayBtn();
 
     setChatFabVisible(false);
     show("match");
@@ -1233,10 +1246,15 @@
           if (!tutorialActiveLevel) return;
           tutorSeen = Object.create(null);
           hideTutorGuide();
+          // 第 2/3 关失败：复位后重播进关动画
+          if (TUTOR_INTROS[tutorialActiveLevel]) {
+            showTutorIntro(tutorialActiveLevel);
+          }
         },
         onPhaseChange: (phase, meta) => onTutorialPhase(phase, meta),
         onMatchOver: (winner) => {
           hideTutorGuide();
+          hideTutorIntro();
           if (winner === "A") markTrainCleared(lv.id);
           const stillTutor = !isTutorialDone();
           syncTutorDockLock();
@@ -1249,6 +1267,7 @@
           }
           if (winner === "A" && !stillTutor && fromTutor) {
             tutorialActiveLevel = null;
+            syncTutorReplayBtn();
             if (ui.btnExit) ui.btnExit.textContent = "退出";
             alert("新手训练完成！现在可以自由探索主页、编队等功能了。");
             show("home");
@@ -1256,16 +1275,26 @@
           }
           // 非新手训练失败仍回训练页；新手失败由 autoRetryOnFail 原地重开，不会走到这里
           tutorialActiveLevel = null;
+          syncTutorReplayBtn();
           if (ui.btnExit) ui.btnExit.textContent = "退出";
           show("train");
         },
       });
+      // 第 2/3 关：开局先播操作动画
+      if (tutorialActiveLevel && TUTOR_INTROS[tutorialActiveLevel]) {
+        showTutorIntro(tutorialActiveLevel);
+      }
     });
   }
 
   function show(name) {
     closePlayerSheet();
     hideTutorGuide();
+    hideTutorIntro();
+    if (name !== "match") {
+      tutorialActiveLevel = null;
+      syncTutorReplayBtn();
+    }
 
     // 新手未完成：禁止主页 / 编队 / 球探 / 商店 / 联机
     if (!isTutorialDone()) {
@@ -1582,7 +1611,7 @@
     demoRaf = 0;
   }
 
-  /** 底部简易演示：按技能播一段循环小动画 */
+  /** 底部技能演示：对局同款足球 + 简易物理碰撞循环 */
   function startSkillDemo(p) {
     stopSkillDemo();
     const canvas = ui.psDemoCanvas;
@@ -1591,24 +1620,57 @@
     const W = canvas.width;
     const H = canvas.height;
     const skillId = p && p.skill ? p.skill.id : null;
-    const t0 = performance.now();
+    const PAD = 12;
+    const DRAG = 1.35;
+    const REST = 2.2;
+    const E = 0.82;
+    const CYCLE = 3.6;
 
-    function drawBall(x, y, r) {
+    const avatar = new Image();
+    if (p && p.avatar) avatar.src = p.avatar;
+
+    /** 与对局 drawBallBody 同款：白底黑块 + 旋转缝线 */
+    function drawSoccerBall(b) {
+      const r = b.r;
+      ctx.save();
+      ctx.translate(b.x, b.y);
+      ctx.rotate(b.spin || 0);
       ctx.beginPath();
-      ctx.arc(x, y, r, 0, Math.PI * 2);
-      ctx.fillStyle = "#f5f5f5";
+      ctx.arc(0, 0, r, 0, Math.PI * 2);
+      ctx.fillStyle = "#f2f2f2";
       ctx.fill();
-      ctx.strokeStyle = "#2a1f14";
-      ctx.lineWidth = 2;
+      ctx.fillStyle = "#1a1a1a";
+      for (let i = 0; i < 5; i++) {
+        const a = (i / 5) * Math.PI * 2;
+        ctx.beginPath();
+        ctx.arc(Math.cos(a) * r * 0.42, Math.sin(a) * r * 0.42, r * 0.22, 0, Math.PI * 2);
+        ctx.fill();
+      }
+      ctx.beginPath();
+      ctx.arc(0, 0, r * 0.18, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.strokeStyle = "rgba(40,40,40,0.55)";
+      ctx.lineWidth = Math.max(1.2, r * 0.08);
+      ctx.beginPath();
+      ctx.moveTo(-r * 0.85, 0);
+      ctx.lineTo(r * 0.85, 0);
+      ctx.moveTo(0, -r * 0.85);
+      ctx.lineTo(0, r * 0.85);
       ctx.stroke();
+      ctx.beginPath();
+      ctx.arc(0, 0, r, 0, Math.PI * 2);
+      ctx.strokeStyle = "#222";
+      ctx.lineWidth = 1.5;
+      ctx.stroke();
+      ctx.restore();
     }
 
-    function drawPlayer(x, y, r, img, scale) {
-      const rr = r * (scale || 1);
+    function drawPlayerBody(b, img, teamColor) {
+      const rr = b.r * (b.scale || 1);
       ctx.save();
       ctx.beginPath();
-      ctx.arc(x, y, rr, 0, Math.PI * 2);
-      ctx.fillStyle = "#3d7bfd";
+      ctx.arc(b.x, b.y, rr, 0, Math.PI * 2);
+      ctx.fillStyle = teamColor || "#3d7bfd";
       ctx.fill();
       ctx.lineWidth = 3;
       ctx.strokeStyle = "#fff";
@@ -1616,112 +1678,346 @@
       if (img && img.complete && img.naturalWidth) {
         ctx.save();
         ctx.beginPath();
-        ctx.arc(x, y, rr - 1.5, 0, Math.PI * 2);
+        ctx.arc(b.x, b.y, Math.max(1, rr - 1.5), 0, Math.PI * 2);
         ctx.clip();
-        ctx.drawImage(img, x - rr, y - rr, rr * 2, rr * 2);
+        ctx.drawImage(img, b.x - rr, b.y - rr, rr * 2, rr * 2);
         ctx.restore();
       }
       ctx.restore();
     }
 
-    const avatar = new Image();
-    if (p && p.avatar) avatar.src = p.avatar;
+    function clampWall(b) {
+      const r = b.r * (b.scale || 1);
+      if (b.x - r < PAD) {
+        b.x = PAD + r;
+        b.vx = Math.abs(b.vx) * E;
+      } else if (b.x + r > W - PAD) {
+        b.x = W - PAD - r;
+        b.vx = -Math.abs(b.vx) * E;
+      }
+      if (b.y - r < PAD) {
+        b.y = PAD + r;
+        b.vy = Math.abs(b.vy) * E;
+      } else if (b.y + r > H - PAD) {
+        b.y = H - PAD - r;
+        b.vy = -Math.abs(b.vy) * E;
+      }
+    }
 
-    function frame(now) {
-      const t = ((now - t0) / 1000) % 3.2;
-      ctx.clearRect(0, 0, W, H);
+    function collide(a, b) {
+      const ra = a.r * (a.scale || 1);
+      const rb = b.r * (b.scale || 1);
+      const dx = b.x - a.x;
+      const dy = b.y - a.y;
+      const dist = Math.hypot(dx, dy) || 0.0001;
+      const min = ra + rb;
+      if (dist >= min) return false;
+      const nx = dx / dist;
+      const ny = dy / dist;
+      const overlap = min - dist;
+      const ma = a.mass || 1;
+      const mb = b.mass || 1;
+      const inv = 1 / ma + 1 / mb;
+      const corr = overlap / inv;
+      a.x -= (nx * corr) / ma;
+      a.y -= (ny * corr) / ma;
+      b.x += (nx * corr) / mb;
+      b.y += (ny * corr) / mb;
+      const rvx = b.vx - a.vx;
+      const rvy = b.vy - a.vy;
+      const velN = rvx * nx + rvy * ny;
+      if (velN > 0) return true;
+      const j = (-(1 + E) * velN) / inv;
+      a.vx -= (j * nx) / ma;
+      a.vy -= (j * ny) / ma;
+      b.vx += (j * nx) / mb;
+      b.vy += (j * ny) / mb;
+      return true;
+    }
 
-      // 简易场地边线
-      ctx.strokeStyle = "rgba(255,255,255,0.35)";
-      ctx.lineWidth = 2;
-      ctx.strokeRect(10, 10, W - 20, H - 20);
-      ctx.beginPath();
-      ctx.moveTo(W * 0.55, 10);
-      ctx.lineTo(W * 0.55, H - 10);
-      ctx.stroke();
+    function integrate(b, dt) {
+      const sp0 = Math.hypot(b.vx, b.vy);
+      if (sp0 > 0) {
+        const damp = Math.exp(-DRAG * dt);
+        b.vx *= damp;
+        b.vy *= damp;
+      }
+      if (Math.hypot(b.vx, b.vy) < REST) {
+        b.vx = 0;
+        b.vy = 0;
+      }
+      b.x += b.vx * dt;
+      b.y += b.vy * dt;
+      const sp = Math.hypot(b.vx, b.vy);
+      if (sp >= REST && b.r > 0) b.spin = (b.spin || 0) + (sp / b.r) * dt * 0.55;
+      // 弧线转向
+      if (b.curveSign && b.curveR > 0 && sp >= REST) {
+        const ang = (sp / b.curveR) * b.curveSign * dt;
+        const c = Math.cos(ang);
+        const s = Math.sin(ang);
+        const nx = b.vx * c - b.vy * s;
+        const ny = b.vx * s + b.vy * c;
+        b.vx = nx;
+        b.vy = ny;
+      }
+    }
 
-      const py = H * 0.55;
-      let px = 56;
-      let pr = 18;
-      let bx = W * 0.62;
-      let by = py;
-      let scale = 1;
+    let player;
+    let ball;
+    let foe = null;
+    let meta = {};
+    let cycleT0 = performance.now();
+    let last = cycleT0;
+    const CYCLE_LEN = skillId === "monk_slide" ? 4.2 : CYCLE;
+
+    function resetScene() {
+      meta = {
+        hitBall: false,
+        hitFoe: false,
+        biteDone: false,
+        strollDone: false,
+        flash: 0,
+        injureT: 0,
+        curveArmed: false,
+      };
+      const midY = H * 0.52;
+      ball = {
+        x: 150,
+        y: midY,
+        r: 9,
+        vx: 0,
+        vy: 0,
+        mass: 0.35,
+        spin: 0,
+        scale: 1,
+      };
+      player = {
+        x: 48,
+        y: midY,
+        r: 17,
+        vx: 0,
+        vy: 0,
+        mass: 1.35,
+        spin: 0,
+        scale: 1,
+        curveSign: 0,
+        curveR: 0,
+      };
+      foe = null;
 
       if (!skillId) {
-        px = 56 + (t / 3.2) * (W - 120);
-        drawPlayer(px, py, pr, null, 1);
-        drawBall(bx, by, 9);
+        // 直线撞球
+        player.vx = 120;
+        ball.x = 145;
       } else if (skillId === "box_hunter") {
-        // 减速后二段加速
-        if (t < 1.1) px = 50 + t * 70;
-        else if (t < 1.55) px = 50 + 1.1 * 70;
-        else px = 50 + 1.1 * 70 + (t - 1.55) * 160;
-        bx = Math.min(W - 40, 90 + t * 95);
-        if (t > 1.5 && t < 1.75) {
-          ctx.fillStyle = "rgba(255,120,100,0.55)";
-          ctx.beginPath();
-          ctx.arc(px, py, 28, 0, Math.PI * 2);
-          ctx.fill();
-        }
-        drawPlayer(px, py, pr, avatar, 1);
-        drawBall(bx, by, 9);
+        player.vx = 125;
+        ball.x = 140;
+        ball.y = midY;
       } else if (skillId === "dragon_glide" || skillId === "tempo_arc") {
-        // 弧线轨迹
-        const u = t / 3.2;
-        px = 40 + u * (W - 90);
-        const bend = skillId === "tempo_arc" ? 38 : 28;
-        py = H * 0.55 - Math.sin(u * Math.PI) * bend;
-        ctx.strokeStyle = "rgba(126,200,245,0.7)";
-        ctx.lineWidth = 3;
-        ctx.beginPath();
-        for (let i = 0; i <= 40; i++) {
-          const s = i / 40;
-          const x = 40 + s * (W - 90);
-          const y = H * 0.55 - Math.sin(s * Math.PI) * bend;
-          if (i === 0) ctx.moveTo(x, y);
-          else ctx.lineTo(x, y);
-        }
-        ctx.stroke();
-        drawPlayer(px, py, pr, avatar, 1);
-        drawBall(W * 0.72, H * 0.55, 9);
+        // 先直线撞球，碰后再拧弧带走
+        player.vx = 135;
+        ball.x = 138;
+        ball.y = midY;
+        meta.flash = 0.55;
+        meta.pendingCurve = skillId === "tempo_arc" ? -1 : 1;
+        meta.pendingCurveR = skillId === "tempo_arc" ? 48 : 62;
       } else if (skillId === "buu_form") {
-        scale = t < 1.2 ? 1 + (t / 1.2) * 0.35 : 1.35;
-        px = 70 + Math.min(1, t / 2.2) * 120;
-        bx = px + 40 + scale * 10;
-        drawPlayer(px, py, pr, avatar, scale);
-        drawBall(bx, by, 9);
+        player.vx = 95;
+        player.scale = 1;
+        ball.x = 155;
       } else if (skillId === "monk_slide") {
-        px = 50 + Math.min(1, t / 1.4) * 150;
-        const foeX = W * 0.62;
-        const hit = t > 1.2;
-        drawPlayer(foeX, py, 16, null, 1);
-        if (hit) {
-          ctx.strokeStyle = "rgba(200,245,66,0.8)";
-          ctx.lineWidth = 3;
-          ctx.beginPath();
-          ctx.arc(foeX, py, 26 + (t - 1.2) * 10, 0, Math.PI * 2);
-          ctx.stroke();
-        }
-        drawPlayer(Math.min(px, foeX - 28), py, pr, avatar, 1);
-        drawBall(W * 0.82, py, 9);
+        // 正对红方，必撞；球在更远处也会被波及
+        player.vx = 175;
+        foe = {
+          x: 155,
+          y: midY,
+          r: 16,
+          vx: 0,
+          vy: 0,
+          mass: 1.05,
+          spin: 0,
+          scale: 1,
+          injured: false,
+          injureAge: 0,
+        };
+        ball.x = 250;
+        ball.y = midY + 6;
       } else if (skillId === "stroll") {
-        // 未碰球再动一次
-        if (t < 1.2) px = 48 + t * 55;
-        else if (t < 1.55) px = 48 + 1.2 * 55;
-        else px = 48 + 1.2 * 55 + (t - 1.55) * 90;
-        if (t > 1.45 && t < 1.7) {
-          ctx.fillStyle = "rgba(200,245,66,0.4)";
-          ctx.beginPath();
-          ctx.arc(px, py, 26, 0, Math.PI * 2);
-          ctx.fill();
-        }
-        drawPlayer(px, py, pr, avatar, 1);
-        drawBall(W * 0.78, py, 9);
+        // 第一段擦肩而过，第二段对准球
+        player.y = midY - 26;
+        player.vx = 95;
+        ball.x = 200;
+        ball.y = midY + 8;
       } else {
-        px = 50 + (t / 3.2) * (W - 120);
-        drawPlayer(px, py, pr, avatar, 1);
-        drawBall(bx, by, 9);
+        player.vx = 120;
+        ball.x = 145;
       }
+    }
+
+    resetScene();
+
+    function step(dt) {
+      const elapsed = (performance.now() - cycleT0) / 1000;
+      if (elapsed > CYCLE_LEN) {
+        cycleT0 = performance.now();
+        resetScene();
+        return;
+      }
+
+      if (skillId === "buu_form") {
+        player.scale = Math.min(1.32, 1 + elapsed * 0.32);
+        player.mass = 1.35 * player.scale;
+      }
+      if (skillId === "box_hunter" && meta.hitBall && !meta.biteDone) {
+        const sp = Math.hypot(player.vx, player.vy);
+        if (sp < 32) {
+          const ang = Math.atan2(player.vy || 0, player.vx || 1);
+          player.vx = Math.cos(ang) * 185;
+          player.vy = Math.sin(ang) * 185;
+          meta.biteDone = true;
+          meta.flash = 0.4;
+        }
+      }
+      if (skillId === "stroll" && !meta.hitBall && !meta.strollDone && elapsed > 1.05) {
+        // 掉头对准球再冲
+        const dx = ball.x - player.x;
+        const dy = ball.y - player.y;
+        const len = Math.hypot(dx, dy) || 1;
+        player.vx = (dx / len) * 155;
+        player.vy = (dy / len) * 155;
+        meta.strollDone = true;
+        meta.flash = 0.4;
+      }
+      // 碰球后再开弧，保证先撞到球
+      if (meta.hitBall && meta.pendingCurve && !meta.curveArmed) {
+        player.curveSign = meta.pendingCurve;
+        player.curveR = meta.pendingCurveR;
+        meta.curveArmed = true;
+      }
+      if (meta.flash > 0) meta.flash = Math.max(0, meta.flash - dt);
+      if (foe && foe.injured) foe.injureAge += dt;
+
+      integrate(player, dt);
+      integrate(ball, dt);
+      if (foe) {
+        if (!foe.injured || foe.injureAge < 0.28) integrate(foe, dt);
+        else {
+          foe.vx *= Math.exp(-6 * dt);
+          foe.vy *= Math.exp(-6 * dt);
+          if (Math.hypot(foe.vx, foe.vy) < REST) {
+            foe.vx = 0;
+            foe.vy = 0;
+          }
+          foe.x += foe.vx * dt;
+          foe.y += foe.vy * dt;
+        }
+      }
+
+      if (collide(player, ball)) meta.hitBall = true;
+      if (foe) {
+        if (!foe.injured && collide(player, foe)) {
+          meta.hitFoe = true;
+          foe.injured = true;
+          foe.injureAge = 0;
+          // 被铲飞一小段
+          foe.vx = Math.max(60, player.vx * 0.45);
+          foe.vy = -55;
+          player.vx *= 0.55;
+          meta.flash = 0.5;
+          meta.injureT = 1;
+        }
+        collide(foe, ball);
+      }
+
+      clampWall(player);
+      clampWall(ball);
+      if (foe) clampWall(foe);
+
+      if (meta.hitBall || meta.hitFoe) {
+        // 飞铲撞人后取消弧；弧线技碰球后仍保留 pending 弧
+        if (skillId === "monk_slide" || skillId === "box_hunter" || skillId === "buu_form") {
+          player.curveSign = 0;
+        }
+      }
+      if (meta.injureT > 0) meta.injureT = Math.max(0, meta.injureT - dt);
+    }
+
+    function drawInjuredFoe(f, now) {
+      const shake = f.injured ? Math.sin(now * 0.04) * 2.2 : 0;
+      const ox = f.x + shake;
+      const oy = f.y;
+      drawPlayerBody({ ...f, x: ox, y: oy }, null, f.injured ? "#7a7a7a" : "#e74c3c");
+      if (!f.injured) return;
+
+      const age = f.injureAge || 0;
+      // 冲击环
+      const ring = 18 + Math.min(22, age * 55);
+      ctx.strokeStyle = `rgba(200,245,66,${Math.max(0, 0.85 - age * 0.55)})`;
+      ctx.lineWidth = 2.5;
+      ctx.beginPath();
+      ctx.arc(ox, oy, ring, 0, Math.PI * 2);
+      ctx.stroke();
+
+      // 眩晕星
+      ctx.fillStyle = "#ffe566";
+      ctx.strokeStyle = "#2a1f14";
+      ctx.lineWidth = 1.2;
+      for (let i = 0; i < 3; i++) {
+        const a = age * 4 + (i / 3) * Math.PI * 2;
+        const sx = ox + Math.cos(a) * 22;
+        const sy = oy - f.r - 10 + Math.sin(a) * 5;
+        ctx.beginPath();
+        ctx.arc(sx, sy, 3.2, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.stroke();
+      }
+
+      // 「受伤」字
+      if (age < 1.6) {
+        ctx.font = "bold 12px Nunito, sans-serif";
+        ctx.textAlign = "center";
+        ctx.fillStyle = `rgba(255,80,80,${Math.max(0.2, 1 - age * 0.4)})`;
+        ctx.fillText("受伤", ox, oy - f.r - 18);
+      }
+    }
+
+    function frame(now) {
+      const raw = Math.min(0.05, (now - last) / 1000);
+      last = now;
+      let acc = raw;
+      const STEP = 1 / 60;
+      while (acc >= STEP) {
+        step(STEP);
+        acc -= STEP;
+      }
+      if (acc > 0) step(acc);
+
+      ctx.clearRect(0, 0, W, H);
+      for (let i = 0; i < 6; i++) {
+        ctx.fillStyle = i % 2 === 0 ? "#2f8f48" : "#348f4c";
+        ctx.fillRect(0, (H / 6) * i, W, H / 6 + 1);
+      }
+      ctx.strokeStyle = "rgba(255,255,255,0.4)";
+      ctx.lineWidth = 2;
+      ctx.strokeRect(PAD, PAD, W - PAD * 2, H - PAD * 2);
+      ctx.beginPath();
+      ctx.moveTo(W * 0.55, PAD);
+      ctx.lineTo(W * 0.55, H - PAD);
+      ctx.stroke();
+
+      if (meta.flash > 0) {
+        ctx.fillStyle =
+          skillId === "box_hunter" || skillId === "monk_slide"
+            ? `rgba(255,120,100,${0.5 * meta.flash})`
+            : `rgba(200,245,66,${0.45 * meta.flash})`;
+        ctx.beginPath();
+        ctx.arc(player.x, player.y, player.r * (player.scale || 1) + 12, 0, Math.PI * 2);
+        ctx.fill();
+      }
+
+      if (foe) drawInjuredFoe(foe, now);
+      drawPlayerBody(player, avatar, "#3d7bfd");
+      drawSoccerBall(ball);
 
       demoRaf = requestAnimationFrame(frame);
     }
@@ -2153,6 +2449,18 @@
   const tutorOkBtn = document.getElementById("tutorOk");
   if (tutorOkBtn) {
     tutorOkBtn.addEventListener("click", () => dismissTutorGuide());
+  }
+  const tutorIntroOk = document.getElementById("tutorIntroOk");
+  if (tutorIntroOk) {
+    tutorIntroOk.addEventListener("click", () => hideTutorIntro());
+  }
+  const btnTutorReplay = document.getElementById("btnTutorReplay");
+  if (btnTutorReplay) {
+    btnTutorReplay.addEventListener("click", () => {
+      if (tutorialActiveLevel && TUTOR_INTROS[tutorialActiveLevel]) {
+        showTutorIntro(tutorialActiveLevel);
+      }
+    });
   }
 
   if (ui.playerSheetClose) ui.playerSheetClose.addEventListener("click", closePlayerSheet);

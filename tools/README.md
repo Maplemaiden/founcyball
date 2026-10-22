@@ -20,12 +20,18 @@ python -m http.server 5173
 node tools/add-training-level.mjs tools/_last-level.json
 ```
 
-同 `id` 会覆盖旧关；默认写完后自动跑可解性检测。跳过检测加 `--no-verify`。
+同 `id` 会覆盖旧关。默认**不**跑极难人机验关（手搓关卡可直接写入）。
 
-## 可解性检测（极难搜索）
+需要可解性检测时：
+
+```bash
+node tools/add-training-level.mjs tools/_last-level.json --verify
+```
+
+## 可解性检测（极难搜索，可选）
 
 ```bash
 node tools/verify-training.mjs
 ```
 
-要求：任意球员能进，且**离球最近的蓝方**也能一击进上门。
+要求：任意球员能进，且**离球最近的蓝方**也能一击进上门。手动做关可不跑。
