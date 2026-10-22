@@ -26,9 +26,20 @@
       roster: document.getElementById("screen-roster"),
       train: document.getElementById("screen-train"),
       online: document.getElementById("screen-online"),
-      placeholder: document.getElementById("screen-placeholder"),
+      skills: document.getElementById("screen-skills"),
+      market: document.getElementById("screen-market"),
       match: document.getElementById("screen-match"),
     },
+    skillsActiveList: document.getElementById("skillsActiveList"),
+    skillsComboList: document.getElementById("skillsComboList"),
+    skillEquipSheet: document.getElementById("skillEquipSheet"),
+    skillEquipTitle: document.getElementById("skillEquipTitle"),
+    skillEquipLane: document.getElementById("skillEquipLane"),
+    skillEquipDesc: document.getElementById("skillEquipDesc"),
+    skillEquipList: document.getElementById("skillEquipList"),
+    skillEquipClear: document.getElementById("skillEquipClear"),
+    skillEquipClose: document.getElementById("skillEquipClose"),
+    skillEquipBackdrop: document.getElementById("skillEquipBackdrop"),
     onlineHint: document.getElementById("onlineHint"),
     onlineActions: document.getElementById("onlineActions"),
     onlineRoom: document.getElementById("onlineRoom"),
@@ -47,7 +58,6 @@
     btnLeaveRoom: document.getElementById("btnLeaveRoom"),
     btnOnlineBack: document.getElementById("btnOnlineBack"),
     onlineCodeInput: document.getElementById("onlineCodeInput"),
-    placeholderTitle: document.getElementById("placeholderTitle"),
     rosterTitle: document.getElementById("rosterTitle"),
     labelA: document.getElementById("labelA"),
     labelB: document.getElementById("labelB"),
@@ -972,7 +982,12 @@
         trainingId: null,
         trainingLayout: null,
         kickoffLayouts: buildKickoffLayoutsForMatch(hostFormation, guestFormation),
-        onMatchOver: null,
+        onMatchOver: () => {
+          if (window.FouncyBall) window.FouncyBall.stop();
+          online.matchStarted = false;
+          setChatFabVisible(false);
+          show("online");
+        },
         onNetEvent: (evt) => {
           if (!online.net) return;
           if (evt.type === "shot") {
@@ -1070,18 +1085,153 @@
     syncArenaSub();
   }
 
-  function syncDock(active, placeholderTitle) {
+  function syncDock(active) {
     document.querySelectorAll("#appDock .dock-item").forEach((btn) => {
       const nav = btn.getAttribute("data-nav");
-      if (nav === "placeholder" && active === "placeholder") {
-        btn.classList.toggle(
-          "on",
-          !!placeholderTitle && btn.getAttribute("data-title") === placeholderTitle
-        );
-      } else {
-        btn.classList.toggle("on", nav === active);
-      }
+      btn.classList.toggle("on", nav === active);
     });
+  }
+
+  function playerSkill(p) {
+    if (!p) return null;
+    if (window.FouncySkills && typeof window.FouncySkills.forPlayer === "function") {
+      return window.FouncySkills.forPlayer(p.id);
+    }
+    return p.skill || null;
+  }
+
+  const skillsUi = {
+    tab: "active",
+    equipSkillId: null,
+  };
+
+  function closeSkillEquip() {
+    skillsUi.equipSkillId = null;
+    if (!ui.skillEquipSheet) return;
+    ui.skillEquipSheet.classList.add("hidden");
+    ui.skillEquipSheet.setAttribute("aria-hidden", "true");
+  }
+
+  function openSkillEquip(skillId) {
+    const skill =
+      window.FouncySkills && typeof window.FouncySkills.get === "function"
+        ? window.FouncySkills.get(skillId)
+        : null;
+    if (!skill || !ui.skillEquipSheet) return;
+    skillsUi.equipSkillId = skillId;
+    if (ui.skillEquipTitle) ui.skillEquipTitle.textContent = skill.name;
+    if (ui.skillEquipLane) {
+      const lane =
+        window.FouncySkills && window.FouncySkills.laneLabel
+          ? window.FouncySkills.laneLabel(skill.lane)
+          : skill.lane;
+      ui.skillEquipLane.textContent = `${lane}专用`;
+    }
+    if (ui.skillEquipDesc) ui.skillEquipDesc.textContent = skill.desc;
+    const wearer =
+      window.FouncySkills && window.FouncySkills.wearerOf
+        ? window.FouncySkills.wearerOf(skillId)
+        : null;
+    if (ui.skillEquipList) {
+      ui.skillEquipList.innerHTML = "";
+      const candidates = players.filter((p) => p.owned !== false && p.lane === skill.lane);
+      if (!candidates.length) {
+        ui.skillEquipList.innerHTML = `<p class="skill-equip-empty">暂无同位置球员</p>`;
+      } else {
+        candidates.forEach((p) => {
+          const btn = document.createElement("button");
+          btn.type = "button";
+          btn.className = "skill-equip-row";
+          if (wearer === p.id) btn.classList.add("on");
+          const av = p.avatar
+            ? `<img src="${p.avatar}" alt="" />`
+            : `<span>${(p.name || "?").slice(0, 1)}</span>`;
+          const cur = playerSkill(p);
+          const curLabel =
+            cur && cur.id !== skillId ? `现带：${cur.name}` : wearer === p.id ? "装备中" : "可装备";
+          btn.innerHTML = `
+            <div class="skill-equip-av">${av}</div>
+            <div class="skill-equip-meta">
+              <div class="skill-equip-name">${p.name}</div>
+              <div class="skill-equip-cur">${curLabel}</div>
+            </div>
+          `;
+          btn.addEventListener("click", () => {
+            const res = window.FouncySkills.equipTo(skillId, p.id);
+            if (!res.ok) {
+              alert(res.reason || "无法装备");
+              return;
+            }
+            closeSkillEquip();
+            renderSkillsPage();
+          });
+          ui.skillEquipList.appendChild(btn);
+        });
+      }
+    }
+    ui.skillEquipSheet.classList.remove("hidden");
+    ui.skillEquipSheet.setAttribute("aria-hidden", "false");
+  }
+
+  function renderSkillsPage() {
+    const FS = window.FouncySkills;
+    if (ui.skillsActiveList) {
+      ui.skillsActiveList.innerHTML = "";
+      const list = FS ? FS.list() : window.FOUNCY_SKILLS || [];
+      list.forEach((skill) => {
+        const wearerId = FS ? FS.wearerOf(skill.id) : null;
+        const wearer = wearerId ? byId[wearerId] : null;
+        const lane = FS ? FS.laneLabel(skill.lane) : skill.lane;
+        const card = document.createElement("button");
+        card.type = "button";
+        card.className = "skill-card";
+        card.dataset.lane = skill.lane;
+        card.innerHTML = `
+          <div class="skill-card-top">
+            <span class="skill-lane-pill" data-lane="${skill.lane}">${lane}</span>
+            ${wearer ? `<span class="skill-wearer">→ ${wearer.name}</span>` : `<span class="skill-wearer muted">未装备</span>`}
+          </div>
+          <div class="skill-card-name">${skill.name}</div>
+          <p class="skill-card-desc">${skill.desc}</p>
+          <div class="skill-card-foot">${wearer ? "点击更换装备" : "点击装备球员"}</div>
+        `;
+        card.addEventListener("click", () => openSkillEquip(skill.id));
+        ui.skillsActiveList.appendChild(card);
+      });
+    }
+    if (ui.skillsComboList) {
+      ui.skillsComboList.innerHTML = "";
+      const combos = FS ? FS.combos() : window.FOUNCY_COMBOS || [];
+      combos.forEach((c) => {
+        const card = document.createElement("article");
+        card.className = "combo-card";
+        card.innerHTML = `
+          <div class="combo-card-top">
+            <span class="combo-club">${c.clubName || "连携"}</span>
+            <span class="combo-soon">建设中</span>
+          </div>
+          <div class="combo-card-name">${c.name}</div>
+          <p class="combo-need">${c.need || ""}</p>
+          <p class="combo-card-desc">${c.desc || ""}</p>
+        `;
+        ui.skillsComboList.appendChild(card);
+      });
+    }
+    syncSkillsTab();
+  }
+
+  function syncSkillsTab() {
+    document.querySelectorAll("[data-skills-tab]").forEach((tab) => {
+      const on = tab.getAttribute("data-skills-tab") === skillsUi.tab;
+      tab.classList.toggle("on", on);
+      tab.setAttribute("aria-selected", on ? "true" : "false");
+    });
+    if (ui.skillsActiveList) {
+      ui.skillsActiveList.classList.toggle("hidden", skillsUi.tab !== "active");
+    }
+    if (ui.skillsComboList) {
+      ui.skillsComboList.classList.toggle("hidden", skillsUi.tab !== "combo");
+    }
   }
 
   function focusTagLabel(focus) {
@@ -1289,6 +1439,7 @@
 
   function show(name) {
     closePlayerSheet();
+    closeSkillEquip();
     hideTutorGuide();
     hideTutorIntro();
     if (name !== "match") {
@@ -1296,9 +1447,9 @@
       syncTutorReplayBtn();
     }
 
-    // 新手未完成：禁止主页 / 编队 / 球探 / 商店 / 联机
+    // 新手未完成：禁止主页 / 编队 / 技能 / 市场 / 联机
     if (!isTutorialDone()) {
-      const blocked = ["home", "roster", "placeholder", "online"];
+      const blocked = ["home", "roster", "skills", "market", "online"];
       if (blocked.includes(name)) {
         const next = getNextTutorialLevel();
         if (next) {
@@ -1318,11 +1469,7 @@
         if (k === "match" || !el) return;
         el.classList.toggle("hidden", k !== name);
       });
-      if (name === "placeholder") {
-        syncDock("placeholder", ui.placeholderTitle?.textContent);
-      } else {
-        syncDock(name);
-      }
+      syncDock(name);
     }
 
     if (name !== "roster" && roster.posEditing) {
@@ -1342,6 +1489,7 @@
     if (name === "home") renderRankHome();
     if (name === "train") renderTrain();
     if (name === "online") syncOnlineUi();
+    if (name === "skills") renderSkillsPage();
     if (!inMatch) lobbyReturn = name;
 
     if (name !== "match" && window.FouncyBall) {
@@ -1513,9 +1661,11 @@
     btn.type = "button";
     btn.className = "rcard" + (onPitch ? " on-pitch" : "") + (locked ? " locked" : "");
     btn.dataset.playerId = p.id;
+    const clubTiny = !locked && p.clubName ? `<div class="rcard-club">${p.clubName}</div>` : "";
     btn.innerHTML = `
       <div class="rcard-avatar"></div>
       <div class="rcard-name">${p.name}</div>
+      ${clubTiny}
       <div class="rcard-lv">Lv.${p.level || 1}</div>
     `;
     const av = btn.querySelector(".rcard-avatar");
@@ -1560,7 +1710,12 @@
       const laneLabel = p.lane === "fwd" ? "前锋" : p.lane === "mid" ? "中场" : p.lane === "def" ? "后防" : "";
       ui.psRoleText.textContent = [p.role, laneLabel].filter(Boolean).join(" · ");
     }
-    if (ui.psBlurb) ui.psBlurb.textContent = locked ? "尚未获得，球探可搜寻。" : p.blurb || "";
+    if (ui.psBlurb) {
+      const club = !locked && p.clubName ? ` · ${p.clubName}` : "";
+      ui.psBlurb.textContent = locked
+        ? "尚未获得，可在市场关注转会消息。"
+        : `${p.blurb || ""}${club}`;
+    }
 
     if (ui.psAvatar) {
       if (p.avatar && !locked) {
@@ -1584,18 +1739,19 @@
     setBar(ui.psBarGrip, hideStats ? 12 : gri);
     setBar(ui.psBarWeight, hideStats ? 12 : wei);
 
+    const equipped = locked ? null : playerSkill(p);
     if (ui.psSkillName) {
-      ui.psSkillName.textContent = locked ? "未解锁" : p.skill ? p.skill.name : "无技能";
+      ui.psSkillName.textContent = locked ? "未解锁" : equipped ? equipped.name : "未装备技能";
     }
     if (ui.psSkillDesc) {
       ui.psSkillDesc.textContent = locked
-        ? "获得该球员后可查看技能效果。"
-        : p.skill
-          ? p.skill.desc
-          : "暂无主动技能。";
+        ? "获得该球员后可在技能页装配通用技能。"
+        : equipped
+          ? equipped.desc
+          : "到「技能」页为同位置球员装备主动技（每项技能仅一人能带）。";
     }
 
-    startSkillDemo(locked ? null : p);
+    startSkillDemo(locked ? null : { ...p, skill: equipped });
   }
 
   function closePlayerSheet() {
@@ -1619,7 +1775,7 @@
     const ctx = canvas.getContext("2d");
     const W = canvas.width;
     const H = canvas.height;
-    const skillId = p && p.skill ? p.skill.id : null;
+    const skillId = p && p.skill ? p.skill.id : p ? (playerSkill(p) || {}).id : null;
     const PAD = 12;
     const DRAG = 1.35;
     const REST = 2.2;
@@ -2097,7 +2253,11 @@
         trainingId: null,
         trainingLayout: null,
         kickoffLayouts: buildKickoffLayoutsForMatch(myFormationPayload(), null),
-        onMatchOver: null,
+        onMatchOver: () => {
+          if (window.FouncyBall) window.FouncyBall.stop();
+          setChatFabVisible(false);
+          show("home");
+        },
       });
     });
   }
@@ -2395,15 +2555,30 @@
 
   document.querySelectorAll("#appDock [data-nav]").forEach((btn) => {
     btn.addEventListener("click", () => {
-      const nav = btn.getAttribute("data-nav");
-      if (nav === "placeholder") {
-        ui.placeholderTitle.textContent = btn.getAttribute("data-title") || "占位";
-        show("placeholder");
-        return;
-      }
-      show(nav);
+      show(btn.getAttribute("data-nav"));
     });
   });
+
+  document.querySelectorAll("[data-skills-tab]").forEach((tab) => {
+    tab.addEventListener("click", () => {
+      const t = tab.getAttribute("data-skills-tab");
+      if (t === "active" || t === "combo") {
+        skillsUi.tab = t;
+        syncSkillsTab();
+      }
+    });
+  });
+
+  if (ui.skillEquipClose) ui.skillEquipClose.addEventListener("click", closeSkillEquip);
+  if (ui.skillEquipBackdrop) ui.skillEquipBackdrop.addEventListener("click", closeSkillEquip);
+  if (ui.skillEquipClear) {
+    ui.skillEquipClear.addEventListener("click", () => {
+      if (!skillsUi.equipSkillId || !window.FouncySkills) return;
+      window.FouncySkills.unequip(skillsUi.equipSkillId);
+      closeSkillEquip();
+      renderSkillsPage();
+    });
+  }
 
   ui.btnExit.addEventListener("click", () => {
     // 新手中：退出 = 重试当前关，不能回大厅
@@ -2476,7 +2651,7 @@
     if (!box) return;
     box.innerHTML = "";
     (window.FOUNCY_PLAYERS || []).forEach((p) => {
-      if (!p || !p.id) return;
+      if (!p || !p.id || !p.avatar) return;
       const el = document.createElement("div");
       el.className = "boot-face";
       el.dataset.id = p.id;
@@ -2484,7 +2659,7 @@
       const img = document.createElement("img");
       img.alt = p.name || "";
       img.decoding = "async";
-      img.src = p.avatar || `assets/avatars/${p.id}.webp`;
+      img.src = p.avatar;
       el.appendChild(img);
       box.appendChild(el);
     });

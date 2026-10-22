@@ -233,15 +233,57 @@
           </div>
         </section>
 
-        <!-- 占位 -->
-        <section id="screen-placeholder" class="screen hidden">
-          <header class="screen-bar">
-            <h2 id="placeholderTitle">占位</h2>
-            <span class="bar-sp"></span>
+        <!-- 技能：通用技能 + 连携占位 -->
+        <section id="screen-skills" class="screen screen-skills hidden">
+          <header class="skills-head">
+            <div>
+              <h2>技能</h2>
+              <p class="skills-sub">同位置通用 · 每项技能只能装给一人</p>
+            </div>
           </header>
-          <div class="placeholder-card">
-            <p>功能建设中</p>
-            <p class="muted">后续在此接球探与商店。</p>
+          <div class="skills-tabs" role="tablist" aria-label="技能分类">
+            <button type="button" class="skills-tab on" data-skills-tab="active" role="tab" aria-selected="true">通用技能</button>
+            <button type="button" class="skills-tab" data-skills-tab="combo" role="tab" aria-selected="false">连携技</button>
+          </div>
+          <div class="skills-scroll" id="skillsScroll">
+            <div id="skillsActiveList" class="skills-list"></div>
+            <div id="skillsComboList" class="skills-list hidden"></div>
+          </div>
+        </section>
+
+        <!-- 市场占位 -->
+        <section id="screen-market" class="screen screen-market hidden">
+          <header class="market-head">
+            <div>
+              <h2>市场</h2>
+              <p class="market-sub">转会与外观交易 · 即将开放</p>
+            </div>
+          </header>
+          <div class="market-body">
+            <div class="market-hero" aria-hidden="true">
+              <div class="market-hero-ball"></div>
+              <div class="market-hero-tag">TRANSFER</div>
+            </div>
+            <div class="market-cards">
+              <article class="market-card">
+                <div class="market-card-ico" aria-hidden="true">球</div>
+                <h3>球员转会</h3>
+                <p>用球票兑换名宿与新星，扩充你的图鉴。</p>
+                <span class="market-soon">即将上架</span>
+              </article>
+              <article class="market-card">
+                <div class="market-card-ico" aria-hidden="true">衣</div>
+                <h3>球衣外观</h3>
+                <p>不改手感，只改场上识别度与秀场气质。</p>
+                <span class="market-soon">即将上架</span>
+              </article>
+              <article class="market-card">
+                <div class="market-card-ico" aria-hidden="true">场</div>
+                <h3>球场边框</h3>
+                <p>换一换场外围观感，主场仪式感拉满。</p>
+                <span class="market-soon">即将上架</span>
+              </article>
+            </div>
           </div>
         </section>
       </div>
@@ -266,19 +308,37 @@
           </span>
           <span class="dock-label">主页</span>
         </button>
-        <button type="button" class="dock-item" data-nav="placeholder" data-title="球探">
+        <button type="button" class="dock-item" data-nav="skills">
           <span class="dock-ico" aria-hidden="true">
-            <svg viewBox="0 0 24 24" width="22" height="22"><path fill="currentColor" d="M10 4a6 6 0 1 1 0 12A6 6 0 0 1 10 4zm0 2a4 4 0 1 0 0 8 4 4 0 0 0 0-8zm7.7 10.3 3 3-1.4 1.4-3-3 1.4-1.4z"/></svg>
+            <svg viewBox="0 0 24 24" width="22" height="22"><path fill="currentColor" d="M12 2l2.4 4.9 5.4.8-3.9 3.8.9 5.4L12 14.8 7.2 17l.9-5.4L4.2 7.7l5.4-.8L12 2zm-7 18h14v2H5v-2z"/></svg>
           </span>
-          <span class="dock-label">球探</span>
+          <span class="dock-label">技能</span>
         </button>
-        <button type="button" class="dock-item" data-nav="placeholder" data-title="商店">
+        <button type="button" class="dock-item" data-nav="market">
           <span class="dock-ico" aria-hidden="true">
             <svg viewBox="0 0 24 24" width="22" height="22"><path fill="currentColor" d="M4 7l2-4h12l2 4v2H4V7zm0 3h16v10H4V10zm3 2v6h2v-6H7zm8 0v6h2v-6h-2z"/></svg>
           </span>
-          <span class="dock-label">商店</span>
+          <span class="dock-label">市场</span>
         </button>
       </nav>
+    </div>
+
+    <!-- 技能装备抽屉 -->
+    <div id="skillEquipSheet" class="skill-equip-sheet hidden" aria-hidden="true">
+      <button type="button" class="skill-equip-backdrop" id="skillEquipBackdrop" aria-label="关闭"></button>
+      <div class="skill-equip-panel" role="dialog" aria-modal="true" aria-labelledby="skillEquipTitle">
+        <header class="skill-equip-head">
+          <div>
+            <div class="skill-equip-eyebrow" id="skillEquipLane">前锋专用</div>
+            <h3 id="skillEquipTitle">禁区猎手</h3>
+          </div>
+          <button type="button" class="skill-equip-close" id="skillEquipClose" aria-label="关闭">×</button>
+        </header>
+        <p class="skill-equip-desc" id="skillEquipDesc"></p>
+        <p class="skill-equip-hint">选择一名同位置球员装备（每人同时只能带 1 个技能）</p>
+        <div class="skill-equip-list" id="skillEquipList"></div>
+        <button type="button" class="skill-equip-clear" id="skillEquipClear">卸下此技能</button>
+      </div>
     </div>
 
     <!-- 对局（无底栏） -->
@@ -344,6 +404,38 @@
       </div>
     </section>
 
+    <!-- 进球中央比分演出（自动消失，无按钮） -->
+    <div id="goalFanfare" class="goal-fanfare hidden" aria-live="polite">
+      <div class="goal-fanfare-card" id="goalFanfareCard">
+        <p id="gfEyebrow" class="gf-eyebrow">GOAL</p>
+        <div class="gf-score" aria-hidden="true">
+          <span class="gf-num side-a" id="gfScoreA">0</span>
+          <span class="gf-sep">:</span>
+          <span class="gf-num side-b" id="gfScoreB">0</span>
+        </div>
+        <p id="gfMsg" class="gf-msg">蓝方进球</p>
+      </div>
+    </div>
+
+    <!-- 终局结算（等玩家选择） -->
+    <div id="resultScreen" class="result-screen hidden" aria-hidden="true">
+      <div class="result-card" id="resultCard">
+        <p id="resultEyebrow" class="result-eyebrow">MATCH OVER</p>
+        <h2 id="resultTitle">蓝方获胜</h2>
+        <div class="result-score">
+          <span id="resultScoreA">0</span>
+          <span class="result-sep">:</span>
+          <span id="resultScoreB">0</span>
+        </div>
+        <p id="resultMsg" class="result-msg"></p>
+        <div class="result-actions">
+          <button type="button" id="btnResultRematch" class="btn result-primary">再来一局</button>
+          <button type="button" id="btnResultExit" class="btn result-ghost">返回</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- 兼容旧弹窗（训练等极少路径仍可复用） -->
     <div id="overlay" class="overlay hidden">
       <div class="card" id="overlayCard">
         <p id="overlayEyebrow" class="overlay-eyebrow">进球</p>
@@ -476,13 +568,14 @@
   </div>
 
   <script src="https://unpkg.com/peerjs@1.5.4/dist/peerjs.min.js"></script>
-  <script src="js/data/physics.js?v=20261022sync"></script>
-  <script src="js/data/players.js?v=20261022sync"></script>
-  <script src="js/data/ranks.js?v=20261022sync"></script>
-  <script src="js/data/training.js?v=20261022sync"></script>
-  <script src="js/ai.js?v=20261022sync"></script>
-  <script src="js/game.js?v=20261022sync"></script>
-  <script src="js/net.js?v=20261022sync"></script>
-  <script src="js/app.js?v=20261022sync"></script>
+  <script src="js/data/physics.js?v=20261022skills"></script>
+  <script src="js/data/players.js?v=20261022skills"></script>
+  <script src="js/data/skills.js?v=20261022skills"></script>
+  <script src="js/data/ranks.js?v=20261022skills"></script>
+  <script src="js/data/training.js?v=20261022skills"></script>
+  <script src="js/ai.js?v=20261022skills"></script>
+  <script src="js/game.js?v=20261022skills"></script>
+  <script src="js/net.js?v=20261022skills"></script>
+  <script src="js/app.js?v=20261022skills"></script>
 </body>
 </html>

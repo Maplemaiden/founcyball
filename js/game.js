@@ -35,7 +35,24 @@
     overlayMsg: document.getElementById("overlayMsg"),
     btnOverlay: document.getElementById("btnOverlay"),
     energyRows: document.getElementById("energyRows"),
+    goalFanfare: document.getElementById("goalFanfare"),
+    gfEyebrow: document.getElementById("gfEyebrow"),
+    gfScoreA: document.getElementById("gfScoreA"),
+    gfScoreB: document.getElementById("gfScoreB"),
+    gfMsg: document.getElementById("gfMsg"),
+    resultScreen: document.getElementById("resultScreen"),
+    resultEyebrow: document.getElementById("resultEyebrow"),
+    resultTitle: document.getElementById("resultTitle"),
+    resultScoreA: document.getElementById("resultScoreA"),
+    resultScoreB: document.getElementById("resultScoreB"),
+    resultMsg: document.getElementById("resultMsg"),
+    btnResultRematch: document.getElementById("btnResultRematch"),
+    btnResultExit: document.getElementById("btnResultExit"),
   };
+
+  let fanfareTimers = [];
+  let fanfareDoneCb = null;
+  let resultWinner = null;
 
   /** 苏牙二段：碰球后等减速，保持当前朝向只突然加大速度 */
   const SUYA_BITE_SPEED_THRESH = 8;
@@ -72,11 +89,21 @@
     const list = window.FOUNCY_PLAYERS || [];
     for (const p of list) {
       if (!p || !p.id || avatarImgs[p.id]) continue;
+      if (!p.avatar) continue; // 无名宿图：对局用色块字
       const img = new Image();
       img.decoding = "async";
-      img.src = p.avatar || `assets/avatars/${p.id}.webp`;
+      img.src = p.avatar;
       avatarImgs[p.id] = img;
     }
+  }
+
+  function resolvePlayerSkill(def) {
+    if (!def) return null;
+    if (window.FouncySkills && typeof window.FouncySkills.forPlayer === "function") {
+      const s = window.FouncySkills.forPlayer(def.id);
+      return s ? { id: s.id, name: s.name, desc: s.desc } : null;
+    }
+    return def.skill ? { ...def.skill } : null;
   }
 
   function avatarReady(defId) {
@@ -98,7 +125,7 @@
     const timeoutMs = (opts && opts.timeoutMs) || 20000;
     preloadAvatars();
 
-    const list = (window.FOUNCY_PLAYERS || []).filter((p) => p && p.id);
+    const list = (window.FOUNCY_PLAYERS || []).filter((p) => p && p.id && p.avatar);
     const total = list.length + 1; // + pitch art
     const t0 = performance.now();
 
@@ -440,10 +467,17 @@
     aiTimers.push(id);
   }
 
+  function uiBlockingCeremony() {
+    if (el.overlay && !el.overlay.classList.contains("hidden")) return true;
+    if (el.goalFanfare && !el.goalFanfare.classList.contains("hidden")) return true;
+    if (el.resultScreen && !el.resultScreen.classList.contains("hidden")) return true;
+    return false;
+  }
+
   function queueAiTurn() {
     clearAiTimers();
     if (!state.running || state.phase !== "select" || !isAiTurn()) return;
-    if (el.overlay && !el.overlay.classList.contains("hidden")) return;
+    if (uiBlockingCeremony()) return;
     if (!window.FouncyAI || typeof window.FouncyAI.decide !== "function") return;
 
     state.aiThinking = true;
@@ -675,7 +709,7 @@
       number: def.number,
       team,
       lane: def.lane || "mid",
-      skill: def.skill ? { ...def.skill } : null,
+      skill: resolvePlayerSkill(def),
       x,
       y,
       vx: 0,
@@ -1502,7 +1536,6 @@
     el.overlayMsg.textContent = msg;
     el.overlay.classList.remove("hidden");
     state.pendingOverlay = onOk;
-    // 对方已经出手在排队：别卡在弹窗上，立刻进入下一回合并消化
     if (state.pendingRemoteShots && state.pendingRemoteShots.length) {
       requestAnimationFrame(() => {
         if (state.pendingRemoteShots && state.pendingRemoteShots.length) {
@@ -1513,11 +1546,195 @@
   }
 
   function hideOverlay() {
-    el.overlay.classList.add("hidden");
-    el.overlay.classList.remove("team-a", "team-b", "neutral");
+    if (el.overlay) {
+      el.overlay.classList.add("hidden");
+      el.overlay.classList.remove("team-a", "team-b", "neutral");
+    }
     const cb = state.pendingOverlay;
     state.pendingOverlay = null;
     if (cb) cb();
+  }
+
+  function clearFanfareTimers() {
+    for (const id of fanfareTimers) clearTimeout(id);
+    fanfareTimers = [];
+  }
+
+  function fanfareDelay(ms, fn) {
+    const id = setTimeout(() => {
+      fanfareTimers = fanfareTimers.filter((t) => t !== id);
+      if (!state.running) return;
+      fn();
+    }, ms);
+    fanfareTimers.push(id);
+  }
+
+  function bumpHudScore(team) {
+    const node = team === "A" ? el.scoreA : el.scoreB;
+    if (!node) return;
+    node.classList.remove("score-bump");
+    void node.offsetWidth;
+    node.classList.add("score-bump");
+    fanfareDelay(600, () => node.classList.remove("score-bump"));
+  }
+
+  function hideGoalFanfare() {
+    clearFanfareTimers();
+    fanfareDoneCb = null;
+    if (!el.goalFanfare) return;
+    el.goalFanfare.classList.add("hidden");
+    el.goalFanfare.classList.remove("show", "team-a", "team-b");
+    if (el.gfScoreA) el.gfScoreA.classList.remove("flip");
+    if (el.gfScoreB) el.gfScoreB.classList.remove("flip");
+  }
+
+  function hideResultScreen() {
+    resultWinner = null;
+    if (!el.resultScreen) return;
+    el.resultScreen.classList.add("hidden");
+    el.resultScreen.setAttribute("aria-hidden", "true");
+    el.resultScreen.classList.remove("team-a", "team-b", "neutral");
+  }
+
+  /**
+   * 中央比分牌演出：先显示旧分 → 跳变新分 → 自动结束
+   * @param {{
+   *   fromA:number, fromB:number, toA:number, toB:number,
+   *   scorer:"A"|"B", ownGoal?:boolean, isFinal?:boolean,
+   *   onDone?:()=>void
+   * }} opts
+   */
+  function playScoreFanfare(opts) {
+    hideGoalFanfare();
+    hideResultScreen();
+    if (!el.goalFanfare) {
+      if (opts.onDone) opts.onDone();
+      return;
+    }
+
+    const scorer = opts.scorer;
+    const ownGoal = !!opts.ownGoal;
+    el.goalFanfare.classList.remove("hidden", "team-a", "team-b");
+    el.goalFanfare.classList.add(scorer === "A" ? "team-a" : "team-b");
+    if (el.gfEyebrow) {
+      el.gfEyebrow.textContent = ownGoal
+        ? "OWN GOAL"
+        : opts.isFinal
+          ? "WINNER"
+          : "GOAL";
+    }
+    if (el.gfScoreA) {
+      el.gfScoreA.textContent = String(opts.fromA);
+      el.gfScoreA.classList.remove("flip");
+    }
+    if (el.gfScoreB) {
+      el.gfScoreB.textContent = String(opts.fromB);
+      el.gfScoreB.classList.remove("flip");
+    }
+    if (el.gfMsg) {
+      el.gfMsg.textContent = ownGoal
+        ? `${teamName(scorer === "A" ? "B" : "A")}乌龙 · ${teamName(scorer)}得分`
+        : `${teamName(scorer)}进球！`;
+    }
+
+    fanfareDoneCb = typeof opts.onDone === "function" ? opts.onDone : null;
+
+    // 下一帧触发入场，保证 transition 生效
+    requestAnimationFrame(() => {
+      if (!state.running || !el.goalFanfare) return;
+      el.goalFanfare.classList.add("show");
+    });
+
+    // 跳变比分
+    fanfareDelay(420, () => {
+      const flipEl = scorer === "A" ? el.gfScoreA : el.gfScoreB;
+      if (el.gfScoreA) el.gfScoreA.textContent = String(opts.toA);
+      if (el.gfScoreB) el.gfScoreB.textContent = String(opts.toB);
+      if (flipEl) {
+        flipEl.classList.remove("flip");
+        void flipEl.offsetWidth;
+        flipEl.classList.add("flip");
+      }
+      bumpHudScore(scorer);
+      syncUI();
+    });
+
+    const hold = opts.isFinal ? 2100 : 1600;
+    fanfareDelay(hold, () => finishScoreFanfare());
+
+    // 联机对方已出手排队：尽快收束演出进入下一回合
+    if (state.pendingRemoteShots && state.pendingRemoteShots.length) {
+      fanfareDelay(520, () => {
+        if (state.pendingRemoteShots && state.pendingRemoteShots.length) {
+          finishScoreFanfare();
+        }
+      });
+    }
+  }
+
+  function finishScoreFanfare() {
+    const cb = fanfareDoneCb;
+    hideGoalFanfare();
+    if (cb) cb();
+  }
+
+  function showResultScreen(opts) {
+    hideGoalFanfare();
+    if (!el.resultScreen) return;
+    const winner = opts.winner;
+    const training = !!state.trainingId;
+    const cleared = training && winner === "A";
+    resultWinner = winner;
+
+    el.resultScreen.classList.remove("hidden", "team-a", "team-b", "neutral");
+    el.resultScreen.classList.add(winner === "A" ? "team-a" : "team-b");
+    el.resultScreen.setAttribute("aria-hidden", "false");
+
+    if (el.resultEyebrow) {
+      el.resultEyebrow.textContent = cleared
+        ? "CLEAR"
+        : training
+          ? "FAILED"
+          : "MATCH OVER";
+    }
+    if (el.resultTitle) {
+      el.resultTitle.textContent = cleared
+        ? "通关！"
+        : training
+          ? "挑战失败"
+          : `${teamName(winner)}获胜`;
+    }
+    if (el.resultScoreA) el.resultScoreA.textContent = String(state.scoreA);
+    if (el.resultScoreB) el.resultScoreB.textContent = String(state.scoreB);
+    if (el.resultMsg) {
+      el.resultMsg.textContent =
+        opts.msg ||
+        (cleared
+          ? "已通关本关"
+          : training
+            ? "对方先破门，可以再试一次"
+            : opts.ownGoal
+              ? "乌龙定胜负"
+              : `最终比分 ${state.scoreA} : ${state.scoreB}`);
+    }
+
+    if (el.btnResultRematch) {
+      // 联机仅房主可重开；训练通关后隐藏「再来」
+      const canRematch =
+        !(training && cleared) &&
+        !(state.localTeam && state.localTeam !== "A");
+      el.btnResultRematch.classList.toggle("hidden", !canRematch);
+      el.btnResultRematch.textContent = training ? "再试一次" : "再来一局";
+    }
+    if (el.btnResultExit) {
+      el.btnResultExit.textContent = cleared
+        ? "继续"
+        : training
+          ? "返回训练"
+          : state.localTeam
+            ? "返回房间"
+            : "返回主页";
+    }
   }
 
   function integrate(dt) {
@@ -1824,88 +2041,73 @@
       state.goalSlowLeft = 0;
       state.goalFlash = 0;
       state.pendingScorer = null;
+      const fromA = state.scoreA;
+      const fromB = state.scoreB;
       if (scorer === "A") state.scoreA += 1;
       else state.scoreB += 1;
+      const toA = state.scoreA;
+      const toB = state.scoreB;
       tickStatusOnTurnEnd(endingTeam);
       state.shotCtx = null;
-      syncUI();
+
+      // HUD 先停在旧分，等中央牌跳变时再同步
+      if (el.scoreA) el.scoreA.textContent = String(fromA);
+      if (el.scoreB) el.scoreB.textContent = String(fromB);
 
       const need = state.winScore || WIN_SCORE;
-      if (state.scoreA >= need || state.scoreB >= need) {
-        const winner = state.scoreA >= need ? "A" : "B";
-        const training = !!state.trainingId;
-        const cleared = training && winner === "A";
+      const isFinal = state.scoreA >= need || state.scoreB >= need;
+      const winner = isFinal ? (state.scoreA >= need ? "A" : "B") : null;
+      const training = !!state.trainingId;
+      const cleared = training && winner === "A";
 
-        // 新手教程失败：不弹失败窗、不退出，原地复位重开
-        if (training && !cleared && state.autoRetryOnFail) {
-          freezeAll();
-          if (typeof state.onAutoRetry === "function") {
-            try {
-              state.onAutoRetry();
-            } catch (err) {
-              console.error("onAutoRetry failed", err);
-            }
+      // 新手教程失败：不播结算，原地复位重开
+      if (isFinal && training && !cleared && state.autoRetryOnFail) {
+        freezeAll();
+        if (typeof state.onAutoRetry === "function") {
+          try {
+            state.onAutoRetry();
+          } catch (err) {
+            console.error("onAutoRetry failed", err);
           }
-          restartMatch();
-          return;
         }
-
-        setPhase("over");
-        showOverlay(
-          cleared ? "通关！" : training ? "挑战失败" : `${teamName(winner)}获胜`,
-          cleared
-            ? "已通关本关，可返回训练页继续。"
-            : training
-              ? "对方先破门。点继续返回训练页再试。"
-              : ownGoal
-                ? `乌龙定胜负！最终比分 ${state.scoreA} : ${state.scoreB}`
-                : `最终比分 ${state.scoreA} : ${state.scoreB}`,
-          () => {
-            const cb = state.onMatchOver;
-            if (typeof cb === "function") {
-              state.onMatchOver = null;
-              cb(winner);
-              return;
-            }
-            restartMatch();
-          },
-          {
-            team: winner,
-            eyebrow: cleared ? "CLEAR" : training ? "FAILED" : "MATCH OVER",
-          }
-        );
+        restartMatch();
         return;
       }
 
-      setPhase("goal");
+      setPhase(isFinal ? "over" : "goal");
       const kickOff = scorer === "A" ? "B" : "A";
-      if (ownGoal) {
-        showOverlay(
-          "乌龙球!",
-          `${teamName(endingTeam)}乌龙，${teamName(scorer)}得分！ ${state.scoreA} : ${state.scoreB}`,
-          () => {
-            resetPositions(true, kickOff);
-            state.turn = kickOff;
-            state.selected = null;
-            syncEnergyDock();
-            setPhase("select");
-          },
-          { team: scorer, eyebrow: "OWN GOAL" }
-        );
-      } else {
-        showOverlay(
-          "GOAL!",
-          `${teamName(scorer)}进球！ ${state.scoreA} : ${state.scoreB}`,
-          () => {
-            resetPositions(true, kickOff);
-            state.turn = kickOff;
-            state.selected = null;
-            syncEnergyDock();
-            setPhase("select");
-          },
-          { team: scorer, eyebrow: "GOAL" }
-        );
-      }
+
+      playScoreFanfare({
+        fromA,
+        fromB,
+        toA,
+        toB,
+        scorer,
+        ownGoal,
+        isFinal,
+        onDone: () => {
+          if (!state.running) return;
+          if (isFinal) {
+            showResultScreen({
+              winner,
+              ownGoal,
+              msg: cleared
+                ? "已通关本关，可返回继续。"
+                : training
+                  ? "对方先破门。可以再试或返回训练页。"
+                  : ownGoal
+                    ? `乌龙定胜负！最终比分 ${toA} : ${toB}`
+                    : `最终比分 ${toA} : ${toB}`,
+            });
+            return;
+          }
+          resetPositions(true, kickOff);
+          state.turn = kickOff;
+          state.selected = null;
+          syncEnergyDock();
+          setPhase("select");
+        },
+      });
       return;
     }
 
@@ -2004,7 +2206,10 @@
         return true;
       }
       state.pendingRemoteShots.push(msg);
-      // 进球弹窗开着：立刻关掉进入下一回合，消化对方已发出的击球
+      // 进球演出中：尽快收束，消化对方已发出的击球
+      if (state.phase === "goal" && el.goalFanfare && !el.goalFanfare.classList.contains("hidden")) {
+        finishScoreFanfare();
+      }
       if (
         (state.phase === "goal" || state.phase === "over") &&
         el.overlay &&
@@ -2063,6 +2268,8 @@
   function applyRemoteRestart() {
     if (!state.running) return false;
     hideOverlay();
+    hideGoalFanfare();
+    hideResultScreen();
     restartMatch();
     return true;
   }
@@ -2102,6 +2309,9 @@
   function restartMatch() {
     clearAiTimers();
     clearFx();
+    hideGoalFanfare();
+    hideResultScreen();
+    hideOverlay();
     state.scoreA = 0;
     state.scoreB = 0;
     state.turn = "A";
@@ -3171,6 +3381,14 @@
   function onPointerDown(e) {
     if (!state.running) return;
     if (inputBlocked()) return;
+    if (
+      state.phase === "goal" ||
+      state.phase === "goalSlow" ||
+      state.phase === "over" ||
+      state.phase === "sim"
+    ) {
+      return;
+    }
     if (state.phase === "select") {
       const w = screenToWorld(e.clientX, e.clientY);
       const p = pickPlayer(w.x, w.y);
@@ -3301,9 +3519,35 @@
       if (state.localTeam && state.localTeam !== "A") return;
       if (state.onNetEvent) state.onNetEvent({ type: "restart" });
       hideOverlay();
+      hideGoalFanfare();
+      hideResultScreen();
       restartMatch();
     });
-    el.btnOverlay.addEventListener("click", () => hideOverlay());
+    if (el.btnOverlay) el.btnOverlay.addEventListener("click", () => hideOverlay());
+    if (el.btnResultRematch) {
+      el.btnResultRematch.addEventListener("click", () => {
+        if (!state.running) return;
+        if (state.localTeam && state.localTeam !== "A") return;
+        if (state.onNetEvent) state.onNetEvent({ type: "restart" });
+        hideResultScreen();
+        restartMatch();
+      });
+    }
+    if (el.btnResultExit) {
+      el.btnResultExit.addEventListener("click", () => {
+        if (!state.running) return;
+        const winner = resultWinner || (state.scoreA >= state.scoreB ? "A" : "B");
+        hideResultScreen();
+        const cb = state.onMatchOver;
+        if (typeof cb === "function") {
+          state.onMatchOver = null;
+          cb(winner);
+          return;
+        }
+        // 无回调时停在结算后回放感：直接重开不如停掉，交给退出按钮
+        restartMatch();
+      });
+    }
     window.addEventListener("resize", () => {
       if (state.running) resize();
     });
@@ -3361,6 +3605,8 @@
     state.keys.a = false;
     state.keys.d = false;
     hideOverlay();
+    hideGoalFanfare();
+    hideResultScreen();
     restartMatch();
     resize();
     last = performance.now();
@@ -3372,6 +3618,10 @@
     state.running = false;
     clearAiTimers();
     clearFx();
+    clearFanfareTimers();
+    hideGoalFanfare();
+    hideResultScreen();
+    hideOverlay();
     if (rafId) {
       cancelAnimationFrame(rafId);
       rafId = 0;
