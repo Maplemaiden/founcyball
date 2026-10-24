@@ -5,7 +5,14 @@
   const lockedPlayers = window.FOUNCY_LOCKED_PLAYERS || [];
   const byId = Object.fromEntries(players.map((p) => [p.id, p]));
   const ranks = window.FOUNCY_RANKS || [];
-  const rankFake = window.FOUNCY_RANK_FAKE || { rankId: "city", cups: 0 };
+  const Rank = window.FouncyRank || null;
+
+  /** 本局排位会话（仅人机排位结算杯数） */
+  const rankedSession = {
+    active: false,
+    oppCups: 0,
+    aiDifficulty: "normal",
+  };
 
   const trainingData = window.FOUNCY_TRAINING || { difficulties: [], levels: [], blurb: "" };
   const PHYS = window.FOUNCY_PHYSICS || {};
@@ -71,10 +78,31 @@
     btnBattle: document.getElementById("btnBattle"),
     btnTogglePitch: document.getElementById("btnTogglePitch"),
     homeStage: document.getElementById("homeStage"),
+    btnHomeProfile: document.getElementById("btnHomeProfile"),
+    profileAvatar: document.getElementById("profileAvatar"),
+    profileName: document.getElementById("profileName"),
     rankName: document.getElementById("rankName"),
     rankCups: document.getElementById("rankCups"),
-    arenaName: document.getElementById("arenaName"),
-    arenaSub: document.getElementById("arenaSub"),
+    btnArenaHero: document.getElementById("btnArenaHero"),
+    homeArenaThumb: document.getElementById("homeArenaThumb"),
+    homeArenaBadge: document.getElementById("homeArenaBadge"),
+    homeCupStrip: document.getElementById("homeCupStrip"),
+    homeCupStripFill: document.getElementById("homeCupStripFill"),
+    homeCupNow: document.getElementById("homeCupNow"),
+    homeCupNext: document.getElementById("homeCupNext"),
+    arenaTower: document.getElementById("arenaTower"),
+    arenaTowerScroll: document.getElementById("arenaTowerScroll"),
+    arenaTowerBackdrop: document.getElementById("arenaTowerBackdrop"),
+    arenaTowerClose: document.getElementById("arenaTowerClose"),
+    accountSheet: document.getElementById("accountSheet"),
+    accountSheetBackdrop: document.getElementById("accountSheetBackdrop"),
+    accountSheetClose: document.getElementById("accountSheetClose"),
+    accountAvatar: document.getElementById("accountAvatar"),
+    accountTitle: document.getElementById("accountTitle"),
+    accountStatus: document.getElementById("accountStatus"),
+    accountRank: document.getElementById("accountRank"),
+    accountCups: document.getElementById("accountCups"),
+    btnAccountLogin: document.getElementById("btnAccountLogin"),
     trainDiff: document.getElementById("trainDiff"),
     trainList: document.getElementById("trainList"),
     playerSheet: document.getElementById("playerSheet"),
@@ -1035,25 +1063,236 @@
     beginOnlineMatch(payload);
   }
 
+  function loadProfile() {
+    if (Rank && typeof Rank.loadProfile === "function") return Rank.loadProfile();
+    return { cups: 0, displayName: "球场新星", loggedIn: false, avatarUrl: "", avatarPlayerId: "" };
+  }
+
   function currentRank() {
+    const profile = loadProfile();
+    if (Rank && typeof Rank.rankForCups === "function") {
+      return Rank.rankForCups(profile.cups);
+    }
     return (
-      ranks.find((r) => r.id === rankFake.rankId) ||
       ranks[0] || {
-        id: "city",
-        name: "城市联赛",
-        arenaName: "城市球场",
-        arena: "city",
+        id: "dirt",
+        name: "泥地联赛",
+        arenaName: "泥地球场",
+        arena: "dirt",
       }
     );
   }
 
+  function profileAvatarUrl(profile) {
+    if (profile && profile.avatarUrl) return profile.avatarUrl;
+    const pid = profile && profile.avatarPlayerId;
+    if (pid && byId[pid] && byId[pid].avatar) return byId[pid].avatar;
+    // 默认用编队第一人 / 梅老板头像占位
+    const first = (roster && roster.A && roster.A[0] && byId[roster.A[0]]) || byId.meilaoban;
+    return (first && first.avatar) || "";
+  }
+
+  function applyAvatarEl(el, url) {
+    if (!el) return;
+    if (url) {
+      el.style.backgroundImage = `url("${url}")`;
+      el.classList.add("has-photo");
+    } else {
+      el.style.backgroundImage = "";
+      el.classList.remove("has-photo");
+    }
+  }
+
+  function climbProgress(cups) {
+    if (Rank && typeof Rank.progressToNext === "function") {
+      return Rank.progressToNext(cups);
+    }
+    return {
+      atTop: true,
+      label: "冲杯进度",
+      hint: "排位胜场加杯",
+      pct: 0,
+      need: 0,
+      next: null,
+    };
+  }
+
+  function arenaThumbHtml(arenaId) {
+    const a = arenaId || "dirt";
+    return `<div class="arena-stad" data-arena="${a}" aria-hidden="true"></div>`;
+  }
+
+  function renderCupStrip(cups) {
+    const prog = climbProgress(cups);
+    const nextNeed = prog.atTop
+      ? cups
+      : prog.next && prog.next.cupsNeed != null
+        ? prog.next.cupsNeed
+        : cups;
+    const pct = prog.atTop ? 100 : Math.round((prog.pct || 0) * 100);
+    if (ui.homeCupNow) ui.homeCupNow.textContent = String(cups);
+    if (ui.homeCupNext) ui.homeCupNext.textContent = String(nextNeed);
+    if (ui.homeCupStripFill) ui.homeCupStripFill.style.width = `${pct}%`;
+    if (ui.homeCupStrip) {
+      ui.homeCupStrip.classList.toggle("at-top", !!prog.atTop);
+      ui.homeCupStrip.classList.toggle("near-up", !prog.atTop && prog.need > 0 && prog.need <= 64);
+    }
+  }
+
+  function syncBattleNudge() {
+    const profile = loadProfile();
+    const prog = climbProgress(profile.cups || 0);
+    const btn = ui.btnBattle;
+    if (!btn) return;
+    if (isOnline()) {
+      btn.textContent = "进入房间";
+      return;
+    }
+    if (!isRanked()) {
+      btn.textContent = "开战";
+      return;
+    }
+    btn.textContent = prog.atTop ? "开战" : prog.need <= 32 ? "开战升段" : "开战冲杯";
+  }
+
+  function renderArenaTower(cups) {
+    const sc = ui.arenaTowerScroll;
+    if (!sc) return;
+    const list = ranks.slice().reverse(); // 高段在上
+    const cur = currentRank();
+    sc.innerHTML = "";
+    list.forEach((r) => {
+      if (!r) return;
+      const unlocked = cups >= (r.cupsNeed || 0);
+      const isCurrent = r.id === cur.id;
+      const card = document.createElement("article");
+      card.className =
+        "tower-card" +
+        (isCurrent ? " is-current" : "") +
+        (!unlocked ? " is-locked" : "");
+      card.dataset.rankId = r.id;
+
+      const thumbWrap = document.createElement("div");
+      thumbWrap.innerHTML = arenaThumbHtml(r.arena || r.id);
+      card.appendChild(thumbWrap.firstElementChild);
+
+      const meta = document.createElement("div");
+      meta.className = "tower-card-meta";
+      const mark = isCurrent ? "当前" : unlocked ? "已抵达" : "未解锁";
+      meta.innerHTML = `<div class="tower-card-league">${r.name}</div><div class="tower-card-cups">${r.cupsNeed || 0} 杯解锁 · ${r.arenaName || ""}</div><span class="tower-card-mark">${mark}</span>`;
+      card.appendChild(meta);
+
+      const reward = document.createElement("div");
+      reward.className = "tower-reward";
+      if (r.reward) {
+        const chestClass = unlocked ? "tower-chest" : "tower-chest is-empty";
+        const cap = unlocked ? "首次礼包" : "未解锁";
+        reward.innerHTML = `<div class="${chestClass}" title="${r.reward.blurb || ""}"></div><div class="tower-reward-cap">${cap}</div>`;
+        reward.addEventListener("click", (e) => {
+          e.stopPropagation();
+          if (!unlocked) {
+            alert(`到达 ${r.cupsNeed} 杯解锁「${r.reward.title}」`);
+            return;
+          }
+          alert(`${r.reward.title}\n${r.reward.blurb || "奖励占位，日后可领"}`);
+        });
+      } else {
+        reward.innerHTML = `<div class="tower-chest is-empty" aria-hidden="true"></div><div class="tower-reward-cap">起点</div>`;
+      }
+      card.appendChild(reward);
+      sc.appendChild(card);
+    });
+  }
+
+  function openArenaTower() {
+    const cups = loadProfile().cups || 0;
+    renderArenaTower(cups);
+    if (ui.arenaTower) {
+      ui.arenaTower.classList.remove("hidden");
+      ui.arenaTower.setAttribute("aria-hidden", "false");
+    }
+    requestAnimationFrame(() => {
+      const cur = ui.arenaTowerScroll && ui.arenaTowerScroll.querySelector(".tower-card.is-current");
+      if (cur && typeof cur.scrollIntoView === "function") {
+        cur.scrollIntoView({ block: "center" });
+      }
+    });
+  }
+
+  function closeArenaTower() {
+    if (!ui.arenaTower) return;
+    ui.arenaTower.classList.add("hidden");
+    ui.arenaTower.setAttribute("aria-hidden", "true");
+  }
+
   function renderRankHome() {
+    const profile = loadProfile();
     const rank = currentRank();
+    const cups = profile.cups || 0;
+    if (ui.profileName) ui.profileName.textContent = profile.displayName || "球场新星";
     if (ui.rankName) ui.rankName.textContent = rank.name;
-    if (ui.rankCups) ui.rankCups.textContent = `${rankFake.cups || 0} 杯`;
-    if (ui.arenaName) ui.arenaName.textContent = rank.arenaName || rank.name;
-    if (ui.homeStage) ui.homeStage.dataset.arena = rank.arena || rank.id;
-    syncArenaSub();
+    if (ui.rankCups) ui.rankCups.textContent = `${cups} 杯`;
+    if (ui.homeArenaThumb) ui.homeArenaThumb.dataset.arena = rank.arena || rank.id;
+    if (ui.homeArenaBadge) ui.homeArenaBadge.textContent = rank.name;
+    applyAvatarEl(ui.profileAvatar, profileAvatarUrl(profile));
+    renderCupStrip(cups);
+    syncBattleNudge();
+  }
+
+  function openAccountSheet() {
+    const profile = loadProfile();
+    const rank = currentRank();
+    if (ui.accountTitle) ui.accountTitle.textContent = profile.displayName || "球场新星";
+    if (ui.accountStatus) {
+      ui.accountStatus.textContent = profile.loggedIn
+        ? "已登录 · 进度可同步（占位）"
+        : "游客模式 · 进度保存在本机";
+    }
+    if (ui.accountRank) ui.accountRank.textContent = rank.name;
+    if (ui.accountCups) ui.accountCups.textContent = String(profile.cups || 0);
+    applyAvatarEl(ui.accountAvatar, profileAvatarUrl(profile));
+    if (ui.accountSheet) {
+      ui.accountSheet.classList.remove("hidden");
+      ui.accountSheet.setAttribute("aria-hidden", "false");
+    }
+  }
+
+  function closeAccountSheet() {
+    if (!ui.accountSheet) return;
+    ui.accountSheet.classList.add("hidden");
+    ui.accountSheet.setAttribute("aria-hidden", "true");
+  }
+
+  function beginRankedSession() {
+    const profile = loadProfile();
+    const oppCups =
+      Rank && typeof Rank.rollOpponentCups === "function"
+        ? Rank.rollOpponentCups(profile.cups, roster.aiDifficulty)
+        : Math.max(0, (profile.cups || 0) + 20);
+    rankedSession.active = true;
+    rankedSession.oppCups = oppCups;
+    rankedSession.aiDifficulty = roster.aiDifficulty;
+  }
+
+  function clearRankedSession() {
+    rankedSession.active = false;
+    rankedSession.oppCups = 0;
+  }
+
+  /** 排位终局：写杯数；返回给结算页的文案 */
+  function settleRankedMatch(winner) {
+    if (!rankedSession.active || !Rank || typeof Rank.applyMatchResult !== "function") {
+      return null;
+    }
+    const won = winner === "A";
+    const result = Rank.applyMatchResult(won, rankedSession.oppCups);
+    // 再来一局：按新杯数重roll对手
+    rankedSession.oppCups = Rank.rollOpponentCups(
+      result.cupsAfter,
+      rankedSession.aiDifficulty
+    );
+    renderRankHome();
+    return result;
   }
 
   function syncArenaSub() {
@@ -1063,11 +1302,12 @@
       return;
     }
     if (!isRanked()) {
-      ui.arenaSub.textContent = "热座 · 本地双人";
+      ui.arenaSub.textContent = "热座 · 本地双人（不加杯）";
       return;
     }
-    ui.arenaSub.textContent =
-      roster.aiDifficulty === "hard" ? "排位赛 · 极难电脑" : "排位赛 · 普通电脑";
+    const rank = currentRank();
+    const diff = roster.aiDifficulty === "hard" ? "极难" : "普通";
+    ui.arenaSub.textContent = `${rank.name} · ${diff}电脑`;
   }
 
   function syncDiffToggle() {
@@ -1079,10 +1319,8 @@
         pill.getAttribute("data-ai-diff") === roster.aiDifficulty
       );
     });
-    if (ui.btnBattle) {
-      ui.btnBattle.textContent = isOnline() ? "进入房间" : "开战";
-    }
     syncArenaSub();
+    syncBattleNudge();
   }
 
   function syncDock(active) {
@@ -2238,6 +2476,8 @@
     }
     if (ui.labelA) ui.labelA.textContent = "蓝";
     if (ui.labelB) ui.labelB.textContent = isRanked() ? "电脑" : "红";
+    if (isRanked()) beginRankedSession();
+    else clearRankedSession();
     setChatFabVisible(false);
     show("match");
     requestAnimationFrame(() => {
@@ -2250,9 +2490,16 @@
         trainingId: null,
         trainingLayout: null,
         kickoffLayouts: buildKickoffLayoutsForMatch(myFormationPayload(), null),
+        onMatchDecide: (winner) => {
+          if (!rankedSession.active) return null;
+          const result = settleRankedMatch(winner);
+          return result ? { line: result.line } : null;
+        },
         onMatchOver: () => {
+          clearRankedSession();
           if (window.FouncyBall) window.FouncyBall.stop();
           setChatFabVisible(false);
+          renderRankHome();
           show("home");
         },
       });
@@ -2587,6 +2834,7 @@
       }
     }
     if (window.FouncyBall) window.FouncyBall.stop();
+    clearRankedSession();
     online.matchStarted = false;
     setChatFabVisible(false);
     closeChatSheet();
@@ -2595,6 +2843,7 @@
       syncOnlineUi();
       return;
     }
+    renderRankHome();
     show(lobbyReturn === "match" ? "home" : lobbyReturn || "home");
   });
 
@@ -2637,6 +2886,18 @@
 
   if (ui.playerSheetClose) ui.playerSheetClose.addEventListener("click", closePlayerSheet);
   if (ui.playerSheetBackdrop) ui.playerSheetBackdrop.addEventListener("click", closePlayerSheet);
+
+  if (ui.btnHomeProfile) ui.btnHomeProfile.addEventListener("click", () => openAccountSheet());
+  if (ui.accountSheetClose) ui.accountSheetClose.addEventListener("click", closeAccountSheet);
+  if (ui.accountSheetBackdrop) ui.accountSheetBackdrop.addEventListener("click", closeAccountSheet);
+  if (ui.btnAccountLogin) {
+    ui.btnAccountLogin.addEventListener("click", () => {
+      // 小程序登录占位
+    });
+  }
+  if (ui.btnArenaHero) ui.btnArenaHero.addEventListener("click", () => openArenaTower());
+  if (ui.arenaTowerClose) ui.arenaTowerClose.addEventListener("click", closeArenaTower);
+  if (ui.arenaTowerBackdrop) ui.arenaTowerBackdrop.addEventListener("click", closeArenaTower);
 
   syncHomeModePills();
   renderRankHome();
@@ -2709,6 +2970,10 @@
     buildBootFaces();
     const started = performance.now();
     const minMs = 650;
+
+    if (window.FouncyAudio && typeof window.FouncyAudio.preload === "function") {
+      window.FouncyAudio.preload(["ball_hit", "goal_swish", "turn", "cheer"]).catch(() => {});
+    }
 
     if (window.FouncyBall && typeof window.FouncyBall.waitAssets === "function") {
       await window.FouncyBall.waitAssets({

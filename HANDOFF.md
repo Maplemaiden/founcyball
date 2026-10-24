@@ -1,7 +1,7 @@
 # Founcyball 交接文档（HANDOFF）
 
 > 给新对话用：先读本文，再按需打开 `docs/` 与源码。  
-> 更新日：2026-10-22（通用技能页 / 名宿球员 / 市场占位）  
+> 更新日：2026-10-24（杯数联赛塔 / 账号占位 / 终场高光回放 / 手机向文案）  
 > 仓库：https://github.com/Maplemaiden/founcyball  
 > Pages：https://maplemaiden.github.io/founcyball/（`index.html` 里 `?v=` 为缓存戳）
 
@@ -39,7 +39,7 @@ python -m http.server 5173
 
 脚本顺序（`index.html` 底部，无构建；`?v=` 仅为缓存戳）：
 
-`physics.js` → `players.js` → `skills.js` → `ranks.js` → `training.js` → `ai.js` → `game.js` → `net.js` → `app.js`  
+`physics.js` → `players.js` → `skills.js` → `ranks.js` → `training.js` → `ai.js` → `audio.js` → `game.js` → `net.js` → `app.js`  
 另有 PeerJS CDN（联机用）。
 
 ---
@@ -53,25 +53,27 @@ founcyball/
 ├── css/style.css              ← 注意：url() 相对本文件，资源写 ../assets/...
 ├── assets/
 │   ├── pitch-surround.jpg     ← 场外围美术（绘制时 evenodd 扣洞）
+│   ├── arenas/                ← 联赛球场 Q 弹卡通图（透明不规则 .png；*.src.jpg 为抠图源）
 │   ├── avatars/               ← 球员头像（主用圆形白底 .webp 256）
 │   │   └── ref/               ← 参考原图（可不进首包）
 │   └── ui/
 │       ├── scoreboard-plaque.png  ← 进球中央比分牌（透明异形）
 │       └── result-plaque.png      ← 终局结算底板（透明异形）
 ├── js/
-│   ├── app.js                 ← 大厅/编队/技能页/市场/训练/新手/联机
-│   ├── game.js                ← 对局核心，导出 FouncyBall
+│   ├── app.js                 ← 大厅/账号/联赛塔/编队/技能/市场/训练/新手/联机
+│   ├── game.js                ← 对局核心 + 高光回放，导出 FouncyBall
 │   ├── ai.js                  ← 人机：normal 混战 / hard 仿真搜索
+│   ├── audio.js               ← 简易音效
 │   ├── net.js                 ← PeerJS 联机封装 FouncyNet
 │   └── data/
 │       ├── physics.js         ← 手感常数 + modsFromStats
 │       ├── players.js         ← 外号球员 + prototype + avatar（无俱乐部字段）
 │       ├── skills.js          ← 通用技能装备 FouncySkills + 连携占位
-│       ├── ranks.js           ← 排位段位假数据
+│       ├── ranks.js           ← 联赛表 + FouncyRank（杯数/存档/对手杯）
 │       └── training.js        ← 训练关卡 + tutorialLevelIds
 ├── tools/
 │   ├── README.md / level-editor.html / add-training-level.mjs / verify-training.mjs
-│   ├── knockout_avatars.py / import_new_avatars.py
+│   ├── knockout_avatars.py / import_new_avatars.py / knockout_arenas.py
 │   └── knockout_ui_plaques.py / compress_ui_plaques.py
 └── docs/
     ├── FORMAL_OUTLINE.md
@@ -126,8 +128,10 @@ founcyball/
 ### 5.2 进球 / 终局 UI（重要）
 
 - **已取消**进球「继续」模态打断（旧 `#overlay` 仅兼容残留路径）
+- **已去掉**对局上方阶段提示条（`#phase`），避免手机拧弧时文案狂跳
 - **普通进球**：慢放 → 中央 `#goalFanfare` 比分牌（旧分→跳变新分）→ ~1.6s 自动开球
-- **决胜球**：比分演出稍长 → `#resultScreen` 结算页  
+- **决胜球**：比分演出稍长 →（若有高光）`highlight` 回放 → `#resultScreen` 结算页  
+  - 高光：出手参数重演；碰撞加权内部打分（**不展示分数**）；训练/新手/联机不播  
   - **再来一局** / **再试一次**：`restartMatch`（联机仅房主可点并广播 restart）  
   - **返回**：调 `onMatchOver(winner)` → 主页 / 联机房间 / 训练页
 - 底板图：`assets/ui/*-plaque.png`（透明异形）。**CSS 里必须写 `../assets/ui/...`**（相对 `css/`，写错会 404）
@@ -137,7 +141,7 @@ founcyball/
 - **主指**：点球员拖拽蓄力  
 - **副指**：侧向拉 → 弧线  
 - 轨迹预览：虚线 + 力度疏密 + 一次折射预判  
-- （开发保留：蓄力中 A 左旋 / D 右旋，不写进玩家文案）
+- （开发保留：蓄力中 A 左旋 / D 右旋；**不写进玩家文案**，面向手机发行）
 
 ### 5.4 人机难度
 
@@ -150,9 +154,9 @@ founcyball/
 
 ### 5.5 大厅模式
 
-- **主页**：段位球场皮 + 排位 / 热座 / 联机；开战用当前编队  
+- **主页**：纯色底 + **Q 弹球场贴图**（点开联赛塔）+ 粗黄杯数条；左上角**账号**（游客存档；微信登录占位）  
 - **底栏**（对局隐藏）：训练 · 编队 · 主页 · **技能** · **市场**  
-- **排位**：人机，红方随机；**热座**：本地双人；**联机**：PeerJS 开房  
+- **排位**：人机，红方随机；结算改杯数（仅排位）；**热座 / 联机不加杯**  
 - **编队**：半场槽位 + 圆卡拖拽；卡片**不显示球队**  
 - **开球站位**：先手 / 后手两套；点「摆位」拖拽保存  
   - 约束：不可进中圈；**最多 1 人**进大禁区；仅己方半场  
@@ -163,7 +167,16 @@ founcyball/
 - **球员详情**：显示当前装备技能 + 迷你物理演示  
 - **训练**：通关 `founcy_train_v1`  
 
-### 5.6 联机聊天
+### 5.6 杯数 · 联赛 · 账号（`ranks.js` → `FouncyRank`）
+
+- 存档键：`founcy_profile_v1`（杯数 / 昵称 / `loggedIn` 占位）  
+- **加减**：赢约 **+30～32**，输约 **−28～−30**；按己方 vs 对手杯差在区间内浮动（对手更强 → 赢得多、输得少）  
+- **仅排位人机**结算；`onMatchDecide(winner)` 写杯并拼结算文案  
+- 联赛 **10 级**（前期跨度小）：泥地 0 → 巷口 60 → 社区 140 → 区县 240 → 城市 360 → 都会 520 → 职业 720 → 精英 1000 → 冠军 1400 → 传奇 2000  
+- 主页 / 联赛塔球场图：`assets/arenas/{arena}.png`；首次抵达礼包 **仅占位**  
+- API：`loadProfile / saveProfile / rankForCups / cupDelta / rollOpponentCups / progressToNext / applyMatchResult`
+
+### 5.7 联机聊天
 
 - 对局右下角 FAB；Peer 同步 `{ t: "chat", ... }`；离房清空  
 
@@ -251,6 +264,7 @@ python tools/knockout_avatars.py      # 头像抠白
 python tools/import_new_avatars.py    # 新头像导入 → 圆形白底 webp
 python tools/knockout_ui_plaques.py   # UI 牌抠外底 → 透明 PNG
 python tools/compress_ui_plaques.py   # 压缩 JPG 源（可选）
+python tools/knockout_arenas.py       # 球场插画抠底 → 不规则透明 PNG
 ```
 
 ---
@@ -269,6 +283,7 @@ FouncyBall.start({
   localTeam?: "A"|"B",
   autoRetryOnFail?, onAutoRetry?,
   onMatchOver?(winner),   // 结算「返回」；勿再依赖弹窗继续
+  onMatchDecide?(winner), // 决胜瞬间；可返回 { line } 写入结算文案（排位杯数）
   onPhaseChange?(phase, { turn, aiTeam }),
   onNetEvent?(evt),
 })
@@ -280,6 +295,7 @@ FouncyBall.applyRemoteShot / applyRemoteArm / applyRemoteRestart
 
 FouncyAI.decide({ bodies, team, pitch, phys, difficulty, evaluateShot })
 FouncyNet.createNet()
+FouncyRank.loadProfile() / applyMatchResult(won, oppCups)
 ```
 
 ---
@@ -287,10 +303,13 @@ FouncyNet.createNet()
 ## 11. 刻意未做 / 占位
 
 - 连携技实装（仅 `skills.js` 文案）  
+- 微信登录 / 云存档（账号 UI 已占位）  
+- 联赛首次抵达礼包实发  
 - 微信小游戏 / Cocos  
-- 音效、市场实装、养成（训练通关除外）  
-- 排位真实段位 / 赛季  
-- 联机断线重连、观战  
+- 市场实装、养成（训练通关除外）  
+- 排位赛季 / 排行榜  
+- 联机断线重连、观战；联机高光回放  
+- 音效仍较简（`audio.js` 可继续补）  
 
 ---
 
@@ -316,18 +335,18 @@ FouncyNet.createNet()
 
 ## 13. 建议下一对话方向
 
-1. 连携技实装 / 技能平衡  
-2. 训练关扩充与星级  
-3. 联机稳定性、断线重连  
-4. 音效与手感反馈  
+1. 联赛礼包实发 / 微信登录接档  
+2. 连携技实装 / 技能平衡  
+3. 训练关扩充与星级  
+4. 联机稳定性、断线重连  
 5. Cocos / 微信小游戏迁移  
 
 新对话开场可复制：
 
 ```
 请先阅读 c:\Users\yoimi\Desktop\myGame\founcyball\HANDOFF.md，
-注意球员外号与 prototype（无俱乐部绑定）、skills.js 通用装备（一技一人）、
-编队先手/后手摆位、新手教程、进球中央比分牌+结算页，
+注意球员外号与 prototype、skills.js 通用装备、杯数联赛塔（FouncyRank）、
+账号占位、终场高光回放、编队摆位与新手教程，
 再在当前 Web 正式版上继续：<你的具体任务>
 ```
 
@@ -340,11 +359,13 @@ FouncyNet.createNet()
 | 胜负、摩擦、力度、弧线标尺、旋转观感 | `js/data/physics.js` |
 | 球员外号/原型/四维/头像 | `js/data/players.js` |
 | 通用技能装备 / 连携占位 | `js/data/skills.js` |
+| 联赛门槛 / 杯数公式 / 本机账号 | `js/data/ranks.js` |
 | 训练关 / 新手关顺序 | `js/data/training.js` |
 | 人机 | `js/ai.js` |
 | 联机 Peer | `js/net.js` |
-| 大厅/编队/技能页/市场/新手/聊天 | `js/app.js` |
-| 物理、输入、绘制、技能结算、进球演出 | `js/game.js` |
+| 大厅/账号/联赛塔/编队/技能/市场/新手 | `js/app.js` |
+| 物理、输入、绘制、技能、进球、高光回放 | `js/game.js` |
+| 联赛球场贴图 | `assets/arenas/*.png` + `css/style.css`（`.arena-stad`） |
 | 比分牌 / 结算底板 | `assets/ui/*.png` + `css/style.css` |
 | 屏幕 DOM | `index.html` |
 | 做关 / 抠图工具 | `tools/` |
@@ -352,4 +373,4 @@ FouncyNet.createNet()
 
 ---
 
-**一句话现状：** 竖屏 Web 可玩雏形——排位/热座/联机/训练 + 11 名外号球员（白底头像）+ 通用技能装备页 + 编队开球摆位 + 新手教程 + 进球比分牌/结算；市场与连携占位；小游戏迁移未开始。
+**一句话现状：** 竖屏 Web 可玩雏形——排位冲杯（10 级联赛塔 + Q 弹球场图）/ 热座 / 联机 / 训练 + 游客账号占位 + 11 名外号球员 + 通用技能 + 编队摆位 + 新手教程 + 进球比分牌/高光回放/结算；市场与连携、登录同步仍占位；小游戏迁移未开始。

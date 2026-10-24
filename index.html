@@ -68,7 +68,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Nunito:wght@700;800;900&display=swap" rel="stylesheet" />
-  <link rel="stylesheet" href="css/style.css?v=20261022hl" />
+  <link rel="stylesheet" href="css/style.css?v=20261023qstad" />
 </head>
 <body>
   <!-- 放在 #app 外，保证首屏立刻盖住，不依赖后续脚本 -->
@@ -88,25 +88,36 @@
         <!-- 主页：排位场景 -->
         <section id="screen-home" class="screen screen-home">
           <header class="home-top">
-            <div class="home-rank-chip">
-              <div class="home-rank-badge" id="rankBadge" aria-hidden="true"></div>
-              <div class="home-rank-text">
-                <div class="home-rank-name" id="rankName">城市联赛</div>
-                <div class="home-rank-cups" id="rankCups">1240 杯</div>
+            <button type="button" class="home-profile" id="btnHomeProfile" aria-label="账号">
+              <div class="home-profile-avatar" id="profileAvatar" aria-hidden="true"></div>
+              <div class="home-profile-text">
+                <div class="home-profile-name" id="profileName">球场新星</div>
+                <div class="home-profile-meta">
+                  <span id="rankName">泥地联赛</span>
+                  <span class="home-profile-dot" aria-hidden="true">·</span>
+                  <span id="rankCups">0 杯</span>
+                </div>
               </div>
-            </div>
+            </button>
             <span class="home-ver">v0.2</span>
           </header>
 
-          <div class="home-stage" id="homeStage" data-arena="city">
-            <div class="home-sky" aria-hidden="true"></div>
-            <div class="home-stands" aria-hidden="true"></div>
-            <div class="home-pitch" aria-hidden="true"></div>
-            <div class="home-sun" aria-hidden="true"></div>
-
-            <div class="home-arena-plate">
-              <div class="home-arena-name" id="arenaName">城市球场</div>
-              <div class="home-arena-sub" id="arenaSub">排位赛场地</div>
+          <div class="home-stage" id="homeStage">
+            <div class="home-arena-block">
+              <button type="button" class="home-arena-hero" id="btnArenaHero" aria-label="查看联赛塔">
+                <div class="arena-stad" id="homeArenaThumb" data-arena="dirt" aria-hidden="true"></div>
+                <div class="home-arena-badge" id="homeArenaBadge">泥地联赛</div>
+                <span class="home-arena-tap">浏览联赛塔</span>
+              </button>
+              <div class="home-cup-strip" id="homeCupStrip" aria-label="冲杯进度">
+                <div class="home-cup-strip-fill" id="homeCupStripFill" style="width: 0%"></div>
+                <div class="home-cup-strip-text">
+                  <span id="homeCupNow">0</span>
+                  <span class="home-cup-slash">/</span>
+                  <span id="homeCupNext">60</span>
+                  <span class="home-cup-unit">杯</span>
+                </div>
+              </div>
             </div>
 
             <div class="home-cta">
@@ -123,6 +134,19 @@
             </div>
           </div>
         </section>
+
+        <!-- 联赛塔（皇室战争式上下浏览） -->
+        <div id="arenaTower" class="arena-tower hidden" aria-hidden="true">
+          <button type="button" class="arena-tower-backdrop" id="arenaTowerBackdrop" aria-label="关闭"></button>
+          <div class="arena-tower-sheet" role="dialog" aria-modal="true" aria-labelledby="arenaTowerTitle">
+            <header class="arena-tower-head">
+              <h2 id="arenaTowerTitle">联赛塔</h2>
+              <button type="button" class="arena-tower-close" id="arenaTowerClose" aria-label="关闭">×</button>
+            </header>
+            <p class="arena-tower-tip">上滑看更高联赛 · 下滑回看已过球场</p>
+            <div class="arena-tower-scroll" id="arenaTowerScroll"></div>
+          </div>
+        </div>
 
         <!-- 联机房间 -->
         <section id="screen-online" class="screen screen-online hidden">
@@ -508,6 +532,35 @@
       </div>
     </div>
 
+    <!-- 账号占位（日后接微信登录） -->
+    <div id="accountSheet" class="account-sheet hidden" aria-hidden="true">
+      <button type="button" class="account-sheet-backdrop" id="accountSheetBackdrop" aria-label="关闭"></button>
+      <div class="account-sheet-panel" role="dialog" aria-modal="true" aria-labelledby="accountTitle">
+        <button type="button" class="account-sheet-close" id="accountSheetClose" aria-label="关闭">×</button>
+        <div class="account-hero">
+          <div class="account-avatar" id="accountAvatar" aria-hidden="true"></div>
+          <h3 id="accountTitle" class="account-name">球场新星</h3>
+          <p class="account-status" id="accountStatus">游客模式 · 进度保存在本机</p>
+        </div>
+        <div class="account-stats">
+          <div class="account-stat">
+            <span class="account-stat-label">联赛</span>
+            <strong id="accountRank">泥地联赛</strong>
+          </div>
+          <div class="account-stat">
+            <span class="account-stat-label">杯数</span>
+            <strong id="accountCups">0</strong>
+          </div>
+        </div>
+        <div class="account-actions">
+          <button type="button" class="btn account-login" id="btnAccountLogin" disabled>
+            微信登录（即将开放）
+          </button>
+          <p class="account-login-hint">小程序上线后可同步杯数与编队；现在先用游客存档。</p>
+        </div>
+      </div>
+    </div>
+
     <!-- 球员详情抽屉 -->
     <div id="playerSheet" class="player-sheet hidden" aria-hidden="true">
       <button type="button" class="player-sheet-backdrop" id="playerSheetBackdrop" aria-label="关闭"></button>
@@ -578,11 +631,12 @@
   <script src="js/data/physics.js?v=20261022avatars"></script>
   <script src="js/data/players.js?v=20261022avatars"></script>
   <script src="js/data/skills.js?v=20261022avatars"></script>
-  <script src="js/data/ranks.js?v=20261022avatars"></script>
+  <script src="js/data/ranks.js?v=20261023tower"></script>
   <script src="js/data/training.js?v=20261022mobile"></script>
   <script src="js/ai.js?v=20261022avatars"></script>
-  <script src="js/game.js?v=20261022hl4"></script>
+  <script src="js/audio.js?v=20261024stop"></script>
+  <script src="js/game.js?v=20261024stop"></script>
   <script src="js/net.js?v=20261022avatars"></script>
-  <script src="js/app.js?v=20261022mobile"></script>
+  <script src="js/app.js?v=20261023stadimg"></script>
 </body>
 </html>

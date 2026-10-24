@@ -167,7 +167,7 @@ html, body {
 .screen-home {
   padding: 0;
   overflow: hidden;
-  background: #7ec8f0;
+  background: #d8e6c8;
   color: var(--lobby-ink);
   touch-action: none;
 }
@@ -183,47 +183,75 @@ html, body {
   flex-shrink: 0;
 }
 
-.home-rank-chip {
+.home-profile {
   display: flex;
   align-items: center;
   gap: 10px;
   min-width: 0;
-  padding: 6px 12px 6px 6px;
+  max-width: calc(100% - 64px);
+  padding: 5px 12px 5px 5px;
   border-radius: 999px;
-  background: rgba(255, 248, 231, 0.88);
+  background: rgba(255, 248, 231, 0.9);
   border: 2.5px solid #2a1f14;
   box-shadow: 0 3px 0 #2a1f14;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
 }
 
-.home-rank-badge {
-  width: 36px;
-  height: 36px;
+.home-profile:active {
+  transform: translateY(1px);
+  box-shadow: 0 2px 0 #2a1f14;
+}
+
+.home-profile-avatar {
+  width: 40px;
+  height: 40px;
   border-radius: 50%;
   border: 2.5px solid #2a1f14;
   flex-shrink: 0;
   background:
-    radial-gradient(circle at 35% 30%, #fff7b0, #ffd400 45%, #e8a200 100%);
-  box-shadow: inset 0 -3px 0 rgba(0, 0, 0, 0.12);
+    radial-gradient(circle at 32% 28%, #fff8e8, #f0d9a0 42%, #c4a574 100%);
+  background-size: cover;
+  background-position: center;
+  box-shadow: inset 0 -3px 0 rgba(0, 0, 0, 0.1);
 }
 
-.home-rank-text {
+.home-profile-avatar.has-photo,
+.account-avatar.has-photo {
+  background-color: #fff;
+}
+
+.home-profile-text {
   min-width: 0;
 }
 
-.home-rank-name {
-  font-size: 0.88rem;
+.home-profile-name {
+  font-size: 0.9rem;
   font-weight: 900;
-  line-height: 1.1;
+  line-height: 1.15;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
 }
 
-.home-rank-cups {
+.home-profile-meta {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  margin-top: 2px;
   font-size: 0.68rem;
   font-weight: 700;
   color: #4a7a55;
-  margin-top: 2px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.home-profile-dot {
+  opacity: 0.55;
 }
 
 .home-ver {
@@ -247,158 +275,131 @@ html, body {
   justify-content: flex-end;
   padding: 8px 18px 18px;
   overflow: hidden;
+  background: #d8e6c8;
 }
 
-.home-sky,
-.home-stands,
-.home-pitch,
-.home-sun {
-  position: absolute;
-  pointer-events: none;
-}
-
-.home-sky {
-  inset: 0;
-  background:
-    radial-gradient(ellipse 90% 55% at 50% -10%, rgba(255, 255, 255, 0.55), transparent 60%),
-    linear-gradient(180deg, #9ad6f7 0%, #7ec8f0 42%, #a8d98a 68%, #3fa85a 100%);
-}
-
-.home-stands {
-  left: -6%;
-  right: -6%;
-  top: 28%;
-  height: 22%;
-  opacity: 0;
-  background:
-    repeating-linear-gradient(90deg, #6b8fa8 0 18px, #5a7d96 18px 36px);
-  clip-path: polygon(4% 100%, 10% 0, 90% 0, 96% 100%);
-  border-bottom: 3px solid rgba(42, 31, 20, 0.25);
-}
-
-.home-pitch {
-  left: -8%;
-  right: -8%;
-  bottom: -6%;
-  height: 52%;
-  border-radius: 50% 50% 0 0 / 18% 18% 0 0;
-  background:
-    repeating-linear-gradient(90deg, #3fa85a 0 28px, #48b463 28px 56px);
-  border-top: 3px solid rgba(42, 31, 20, 0.2);
-  box-shadow: inset 0 18px 40px rgba(255, 255, 255, 0.12);
-}
-
-.home-pitch::before {
-  content: "";
-  position: absolute;
-  left: 50%;
-  top: 18%;
-  width: 42%;
-  aspect-ratio: 1;
-  transform: translateX(-50%);
-  border: 2.5px solid rgba(255, 255, 255, 0.45);
-  border-radius: 50%;
-}
-
-.home-pitch::after {
-  content: "";
-  position: absolute;
-  left: 50%;
-  top: 18%;
-  bottom: 0;
-  width: 2.5px;
-  transform: translateX(-50%);
-  background: rgba(255, 255, 255, 0.4);
-}
-
-.home-sun {
-  top: 6%;
-  right: 10%;
-  width: 56px;
-  height: 56px;
-  border-radius: 50%;
-  background: radial-gradient(circle at 35% 35%, #fff7b0, #ffd400 55%, #ffb400 100%);
-  box-shadow: 0 0 0 8px rgba(255, 212, 0, 0.22), 0 0 28px rgba(255, 212, 0, 0.45);
-}
-
-/* 娈典綅鐞冨満鐨偆 */
-.home-stage[data-arena="dirt"] .home-sky {
-  background: linear-gradient(180deg, #c9b896 0%, #b8a47a 40%, #9a7b4a 70%, #7a5a32 100%);
-}
-.home-stage[data-arena="dirt"] .home-sun { opacity: 0.55; filter: saturate(0.7); }
-.home-stage[data-arena="dirt"] .home-stands { opacity: 0; }
-.home-stage[data-arena="dirt"] .home-pitch {
-  background: repeating-linear-gradient(90deg, #8b6914 0 28px, #9a7520 28px 56px);
-}
-
-.home-stage[data-arena="park"] .home-stands { opacity: 0.15; height: 12%; top: 38%; }
-.home-stage[data-arena="park"] .home-pitch {
-  background: repeating-linear-gradient(90deg, #4aaa5c 0 28px, #57b86a 28px 56px);
-}
-
-.home-stage[data-arena="city"] .home-stands { opacity: 0.55; }
-.home-stage[data-arena="city"] .home-pitch {
-  background: repeating-linear-gradient(90deg, #3fa85a 0 28px, #48b463 28px 56px);
-}
-
-.home-stage[data-arena="pro"] .home-sky {
-  background:
-    radial-gradient(ellipse 70% 40% at 50% 10%, rgba(255, 255, 220, 0.35), transparent 55%),
-    linear-gradient(180deg, #6eb0e0 0%, #5aa0d0 35%, #7bc46a 65%, #2f9a4a 100%);
-}
-.home-stage[data-arena="pro"] .home-stands {
-  opacity: 0.85;
-  background: repeating-linear-gradient(90deg, #3d5a78 0 16px, #2f4a66 16px 32px);
-}
-.home-stage[data-arena="pro"] .home-pitch {
-  background: repeating-linear-gradient(90deg, #2f9a4a 0 28px, #38a854 28px 56px);
-  box-shadow: inset 0 0 40px rgba(255, 255, 200, 0.15), inset 0 18px 40px rgba(255, 255, 255, 0.08);
-}
-
-.home-stage[data-arena="legend"] .home-sky {
-  background:
-    radial-gradient(ellipse 80% 50% at 50% 0%, rgba(255, 220, 120, 0.55), transparent 60%),
-    linear-gradient(180deg, #5a9fd4 0%, #4a8ec8 35%, #3cb86a 70%, #1f8a45 100%);
-}
-.home-stage[data-arena="legend"] .home-stands {
-  opacity: 1;
-  background: repeating-linear-gradient(90deg, #c9a227 0 14px, #a8841a 14px 28px);
-}
-.home-stage[data-arena="legend"] .home-pitch {
-  background: repeating-linear-gradient(90deg, #1f8a45 0 28px, #27a052 28px 56px);
-  box-shadow: inset 0 0 50px rgba(255, 210, 80, 0.22);
-}
-.home-stage[data-arena="legend"] .home-pitch::before,
-.home-stage[data-arena="legend"] .home-pitch::after {
-  border-color: rgba(255, 230, 140, 0.65);
-  background: rgba(255, 230, 140, 0.55);
-}
-
-.home-arena-plate {
+.home-arena-block {
   position: relative;
   z-index: 2;
+  width: min(300px, 86%);
+  margin: 8% auto auto;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.home-arena-hero {
+  position: relative;
+  display: block;
+  width: 100%;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  overflow: visible;
+  background: transparent;
+  box-shadow: none;
+  cursor: pointer;
+  color: inherit;
+  font: inherit;
   text-align: center;
-  margin-bottom: auto;
-  margin-top: 12%;
-  padding: 10px 18px;
-  border-radius: 16px;
-  background: rgba(255, 248, 231, 0.82);
+  -webkit-tap-highlight-color: transparent;
+}
+
+.home-arena-hero:active {
+  transform: translateY(2px) scale(0.985);
+}
+
+/* Q弹卡通球场贴图（透明不规则 PNG） */
+.arena-stad {
+  position: relative;
+  display: block;
+  width: 100%;
+  aspect-ratio: 16 / 10;
+  margin: 0 auto;
+  background-color: transparent;
+  background-size: contain;
+  background-position: center bottom;
+  background-repeat: no-repeat;
+  filter: drop-shadow(0 6px 0 rgba(42, 31, 20, 0.18));
+}
+
+.arena-stad[data-arena="dirt"] { background-image: url("../assets/arenas/dirt.png"); }
+.arena-stad[data-arena="alley"] { background-image: url("../assets/arenas/alley.png"); }
+.arena-stad[data-arena="park"] { background-image: url("../assets/arenas/park.png"); }
+.arena-stad[data-arena="county"] { background-image: url("../assets/arenas/county.png"); }
+.arena-stad[data-arena="city"] { background-image: url("../assets/arenas/city.png"); }
+.arena-stad[data-arena="metro"] { background-image: url("../assets/arenas/metro.png"); }
+.arena-stad[data-arena="pro"] { background-image: url("../assets/arenas/pro.png"); }
+.arena-stad[data-arena="elite"] { background-image: url("../assets/arenas/elite.png"); }
+.arena-stad[data-arena="champ"] { background-image: url("../assets/arenas/champ.png"); }
+.arena-stad[data-arena="legend"] { background-image: url("../assets/arenas/legend.png"); }
+
+.home-arena-badge {
+  position: absolute;
+  left: 50%;
+  bottom: 2px;
+  transform: translateX(-50%);
+  padding: 5px 12px;
+  border-radius: 999px;
   border: 2.5px solid #2a1f14;
-  box-shadow: 0 3px 0 #2a1f14;
-}
-
-.home-arena-name {
-  font-size: 1.25rem;
+  background: rgba(255, 248, 231, 0.95);
+  font-size: 0.78rem;
   font-weight: 900;
-  letter-spacing: 0.04em;
+  color: #1e3a24;
+  box-shadow: 0 2px 0 #2a1f14;
+  white-space: nowrap;
 }
 
-.home-arena-sub {
-  margin-top: 4px;
-  font-size: 0.72rem;
-  font-weight: 700;
-  color: #4a7a55;
+.home-arena-tap {
+  position: absolute;
+  right: 4px;
+  top: 0;
+  padding: 4px 8px;
+  border-radius: 999px;
+  background: rgba(12, 22, 18, 0.5);
+  color: #fff8e7;
+  font-size: 0.62rem;
+  font-weight: 800;
 }
+
+/* 粗黄杯数条 */
+.home-cup-strip {
+  position: relative;
+  height: 28px;
+  border-radius: 999px;
+  border: 3px solid #2a1f14;
+  background: #c9a020;
+  box-shadow: 0 3px 0 #2a1f14;
+  overflow: hidden;
+}
+
+.home-cup-strip-fill {
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: 0;
+  background: linear-gradient(180deg, #ffe566 0%, #ffd000 45%, #f0b400 100%);
+  transition: width 0.35s ease;
+}
+
+.home-cup-strip-text {
+  position: relative;
+  z-index: 1;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+  font-size: 0.84rem;
+  font-weight: 900;
+  color: #2a1f14;
+  text-shadow: 0 1px 0 rgba(255, 248, 231, 0.45);
+  font-variant-numeric: tabular-nums;
+}
+
+.home-cup-slash { opacity: 0.55; margin: 0 1px; }
+.home-cup-unit { margin-left: 3px; font-size: 0.72rem; }
 
 .home-cta {
   position: relative;
@@ -408,6 +409,194 @@ html, body {
   flex-direction: column;
   align-items: stretch;
   gap: 10px;
+}
+
+/* 联赛塔 */
+.arena-tower {
+  position: fixed;
+  inset: 0;
+  z-index: 34;
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+  max-width: 480px;
+  margin: 0 auto;
+}
+
+.arena-tower.hidden {
+  display: none !important;
+}
+
+.arena-tower-backdrop {
+  position: absolute;
+  inset: 0;
+  border: 0;
+  background: rgba(12, 20, 16, 0.55);
+  cursor: pointer;
+}
+
+.arena-tower-sheet {
+  position: relative;
+  z-index: 1;
+  height: min(82vh, 720px);
+  display: flex;
+  flex-direction: column;
+  border-radius: 22px 22px 0 0;
+  border: 3px solid #2a1f14;
+  border-bottom: 0;
+  background: linear-gradient(180deg, #fff8e7 0%, #e8f2d0 100%);
+  box-shadow: 0 -12px 32px rgba(0, 0, 0, 0.28);
+  color: #1e3a24;
+}
+
+.arena-tower-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 14px 16px 4px;
+  flex-shrink: 0;
+}
+
+.arena-tower-head h2 {
+  margin: 0;
+  font-size: 1.15rem;
+  font-weight: 900;
+}
+
+.arena-tower-close {
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  border: 2.5px solid #2a1f14;
+  background: #fff;
+  font-size: 1.2rem;
+  font-weight: 900;
+  cursor: pointer;
+  line-height: 1;
+}
+
+.arena-tower-tip {
+  margin: 0 16px 8px;
+  font-size: 0.72rem;
+  font-weight: 700;
+  color: #5a7a40;
+  flex-shrink: 0;
+}
+
+.arena-tower-scroll {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  padding: 4px 14px calc(18px + var(--safe-bottom, 0px));
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.tower-card {
+  display: grid;
+  grid-template-columns: 108px 1fr auto;
+  gap: 10px;
+  align-items: center;
+  padding: 8px;
+  border-radius: 16px;
+  border: 2.5px solid #2a1f14;
+  background: rgba(255, 255, 255, 0.72);
+  box-shadow: 0 2px 0 #2a1f14;
+}
+
+.tower-card.is-current {
+  background: rgba(255, 230, 120, 0.55);
+  box-shadow: 0 3px 0 #2a1f14, 0 0 0 2px rgba(240, 192, 0, 0.45);
+}
+
+.tower-card.is-locked {
+  opacity: 0.55;
+  filter: grayscale(0.35);
+}
+
+.tower-card .arena-stad {
+  border-radius: 0;
+  border: 0;
+  overflow: visible;
+  aspect-ratio: 16 / 11;
+  background-color: transparent;
+  filter: drop-shadow(0 3px 0 rgba(42, 31, 20, 0.16));
+}
+
+.tower-card-meta {
+  min-width: 0;
+}
+
+.tower-card-league {
+  font-size: 0.9rem;
+  font-weight: 900;
+  line-height: 1.2;
+}
+
+.tower-card-cups {
+  margin-top: 3px;
+  font-size: 0.72rem;
+  font-weight: 800;
+  color: #5a7a40;
+}
+
+.tower-card-mark {
+  margin-top: 4px;
+  display: inline-block;
+  font-size: 0.62rem;
+  font-weight: 900;
+  padding: 2px 7px;
+  border-radius: 999px;
+  border: 1.5px solid #2a1f14;
+  background: #fff8e7;
+}
+
+.tower-card.is-current .tower-card-mark {
+  background: #ffe566;
+}
+
+.tower-reward {
+  width: 52px;
+  text-align: center;
+}
+
+.tower-chest {
+  width: 44px;
+  height: 44px;
+  margin: 0 auto;
+  border-radius: 12px;
+  border: 2.5px solid #2a1f14;
+  background:
+    linear-gradient(180deg, #ffe566 0%, #f0c000 55%, #d4a010 100%);
+  box-shadow: inset 0 -3px 0 rgba(0, 0, 0, 0.12), 0 2px 0 #2a1f14;
+  position: relative;
+}
+
+.tower-chest::after {
+  content: "";
+  position: absolute;
+  left: 50%;
+  top: 42%;
+  width: 55%;
+  height: 3px;
+  transform: translateX(-50%);
+  background: #2a1f14;
+  opacity: 0.35;
+}
+
+.tower-chest.is-empty {
+  background: linear-gradient(180deg, #ddd 0%, #bbb 100%);
+  opacity: 0.7;
+}
+
+.tower-reward-cap {
+  margin-top: 4px;
+  font-size: 0.58rem;
+  font-weight: 800;
+  line-height: 1.2;
+  color: #5a7a40;
 }
 
 .mode-toggle {
@@ -2127,6 +2316,7 @@ html, body {
   color: #cfc6a8;
   font-size: 0.84rem;
   min-height: 1.2em;
+  white-space: pre-line;
   text-shadow: 0 1px 2px rgba(0, 0, 0, 0.55);
 }
 
@@ -2255,7 +2445,135 @@ html, body {
   color: #fff;
 }
 
-/* 鈥斺€?鐞冨憳璇︽儏鎶藉眽 鈥斺€?*/
+/* —— 账号占位抽屉 —— */
+.account-sheet {
+  position: fixed;
+  inset: 0;
+  z-index: 32;
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+  max-width: 480px;
+  margin: 0 auto;
+}
+
+.account-sheet.hidden {
+  display: none !important;
+}
+
+.account-sheet-backdrop {
+  position: absolute;
+  inset: 0;
+  border: 0;
+  background: rgba(20, 30, 22, 0.45);
+  cursor: pointer;
+}
+
+.account-sheet-panel {
+  position: relative;
+  z-index: 1;
+  padding: 18px 18px calc(18px + var(--safe-bottom, 0px));
+  border-radius: 22px 22px 0 0;
+  background: linear-gradient(180deg, #fffaf0 0%, #eef6d8 60%, #e2efc4 100%);
+  border: 3px solid #2a1f14;
+  border-bottom: 0;
+  box-shadow: 0 -10px 28px rgba(30, 58, 36, 0.28);
+  color: #1e3a24;
+}
+
+.account-sheet-close {
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  border: 2.5px solid #2a1f14;
+  background: #fff;
+  font-size: 1.2rem;
+  font-weight: 900;
+  cursor: pointer;
+  line-height: 1;
+}
+
+.account-hero {
+  text-align: center;
+  padding: 8px 28px 4px;
+}
+
+.account-avatar {
+  width: 72px;
+  height: 72px;
+  margin: 0 auto 10px;
+  border-radius: 50%;
+  border: 3px solid #2a1f14;
+  background:
+    radial-gradient(circle at 32% 28%, #fff8e8, #f0d9a0 42%, #c4a574 100%);
+  background-size: cover;
+  background-position: center;
+  box-shadow: 0 3px 0 #2a1f14;
+}
+
+.account-name {
+  margin: 0;
+  font-size: 1.2rem;
+  font-weight: 900;
+}
+
+.account-status {
+  margin: 6px 0 0;
+  font-size: 0.78rem;
+  font-weight: 700;
+  color: #5a7a40;
+}
+
+.account-stats {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+  margin: 16px 0;
+}
+
+.account-stat {
+  padding: 12px 10px;
+  border-radius: 14px;
+  border: 2.5px solid #2a1f14;
+  background: rgba(255, 255, 255, 0.72);
+  text-align: center;
+}
+
+.account-stat-label {
+  display: block;
+  font-size: 0.68rem;
+  font-weight: 800;
+  color: #5a7a40;
+  margin-bottom: 4px;
+}
+
+.account-stat strong {
+  font-size: 1.05rem;
+  font-weight: 900;
+}
+
+.account-actions {
+  text-align: center;
+}
+
+.account-login {
+  width: 100%;
+  opacity: 0.72;
+  cursor: not-allowed;
+}
+
+.account-login-hint {
+  margin: 10px 0 0;
+  font-size: 0.72rem;
+  font-weight: 700;
+  line-height: 1.45;
+  color: #5a7a40;
+}
+
+/* 球员详情抽屉 */
 .player-sheet {
   position: fixed;
   inset: 0;

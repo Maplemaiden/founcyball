@@ -237,7 +237,7 @@
     goalFlash: 0,
     /** 已判定的得分方（慢放前锁定，避免球被顶出后不算） */
     pendingScorer: null,
-    /** 本场最佳高光（内部质量够线才存；不展示分数） */
+    /** 本场最佳高光（内部质量够线才存；不展示分数；双方达标优先我方） */
     bestHighlight: null,
     /** 出手前场地快照，进球后可写入 bestHighlight */
     shotReplaySnap: null,
@@ -304,6 +304,8 @@
     winScore: WIN_SCORE,
     /** 比赛结束回调 (winner) => void */
     onMatchOver: null,
+    /** 决胜时回调 (winner) => { line?: string } | null —— 排位杯数等 */
+    onMatchDecide: null,
     /** 阶段变化回调 (phase) => void */
     onPhaseChange: null,
     /** 训练失败时不弹窗、直接重开（新手教程） */
@@ -374,6 +376,13 @@
     });
   }
 
+  /** 碰撞音效（球/人 碰墙、门柱、彼此）；AI 静默仿真不播 */
+  function maybeBallHitSfx(impact) {
+    if (state.simulating) return;
+    if (!window.FouncyAudio || typeof window.FouncyAudio.play !== "function") return;
+    window.FouncyAudio.play("ball_hit", { impact });
+  }
+
   function spawnGoalBurst(wx, wy, team) {
     const tint = team === "A" ? "rgba(158,192,255,0.95)" : "rgba(255,176,168,0.95)";
     spawnSparks(wx, wy, 26, { color: tint, speed: 58, life: 0.72 });
@@ -399,6 +408,13 @@
     }
   }
 
+  function playGoalSwishSfx() {
+    if (state.simulating) return;
+    if (!window.FouncyAudio || typeof window.FouncyAudio.play !== "function") return;
+    // 略降速 + 降音量，压尖刺感（原版备份在 goal-swish-sharp.wav）
+    window.FouncyAudio.play("goal_swish", { volume: 0.72, rate: 0.88, cooldownMs: 400 });
+  }
+
   function beginGoalSlowMo(scorer) {
     // 先锁定得分，再播慢动作（结算用 pendingScorer，不再重新 checkGoal）
     state.pendingScorer = scorer;
@@ -408,6 +424,7 @@
     if (bb) {
       spawnGoalBurst(bb.x, scorer === "A" ? Math.min(bb.y, 0) : Math.max(bb.y, L), scorer);
     }
+    playGoalSwishSfx();
     state.goalSlowLeft = GOAL_SLOW_SEC;
     state.goalFlash = 1;
     setPhase("goalSlow");
@@ -977,13 +994,28 @@
     return true;
   }
 
-  function considerHighlight(quality, ownGoal) {
+  /** 高光优先方：人机=人类；热座=下方（蓝） */
+  function preferredHighlightTeam() {
+    if (state.aiTeam === "A") return "B";
+    if (state.aiTeam === "B") return "A";
+    return state.viewBottomTeam || "A";
+  }
+
+  function considerHighlight(quality, ownGoal, scoringTeam) {
     if (!highlightsEnabled() || ownGoal || quality < HIGHLIGHT_MIN_QUALITY) return;
     if (!state.shotReplaySnap || !state.shotReplaySnap.bodies || !state.shotReplaySnap.shot) return;
     const prev = state.bestHighlight;
-    if (prev && prev.quality >= quality) return;
+    const prefer = preferredHighlightTeam();
+    const newIsMine = scoringTeam === prefer;
+    const prevIsMine = !!(prev && prev.scoringTeam === prefer);
+    // 双方都达标时优先我方；同阵营再比质量
+    if (prev) {
+      if (prevIsMine && !newIsMine) return;
+      if (!( !prevIsMine && newIsMine) && prev.quality >= quality) return;
+    }
     state.bestHighlight = {
       quality,
+      scoringTeam: scoringTeam || null,
       bodies: cloneBodiesSnap(state.shotReplaySnap.bodies),
       shot: { ...state.shotReplaySnap.shot, aim: { ...state.shotReplaySnap.shot.aim } },
     };
@@ -1553,6 +1585,15 @@
     return { x: rect.left + s.x, y: rect.top + s.y };
   }
 
+  /** 换手到本方可操作时提示（点选棋子不播） */
+  function playTurnHandoffSfx() {
+    if (state.simulating) return;
+    // AI / 联机对方回合：不提示
+    if (isAiTurn() || isRemoteTurn()) return;
+    if (!window.FouncyAudio || typeof window.FouncyAudio.play !== "function") return;
+    window.FouncyAudio.play("turn", { volume: 0.5, cooldownMs: 200 });
+  }
+
   /** 点选球员并立即开始蓄力拖动（原点锚定球心，相对位移映射到圆心） */
   function beginAimOnPlayer(p, e) {
     state.selected = p;
@@ -1788,6 +1829,10 @@
 
   function hideResultScreen() {
     resultWinner = null;
+    // 离开结算（返回 / 再来一局）立刻停掉欢呼等长音
+    if (window.FouncyAudio && typeof window.FouncyAudio.stop === "function") {
+      window.FouncyAudio.stop("cheer");
+    }
     if (!el.resultScreen) return;
     el.resultScreen.classList.add("hidden");
     el.resultScreen.setAttribute("aria-hidden", "true");
@@ -1876,6 +1921,13 @@
     if (cb) cb();
   }
 
+  function playCheerSfx() {
+    if (state.simulating) return;
+    if (!window.FouncyAudio || typeof window.FouncyAudio.play !== "function") return;
+    // 结算页欢呼：只播一次；音量可在此调
+    window.FouncyAudio.play("cheer", { volume: 0.55, cooldownMs: 3000 });
+  }
+
   function showResultScreen(opts) {
     hideGoalFanfare();
     hideHighlightBanner();
@@ -1888,6 +1940,8 @@
     el.resultScreen.classList.remove("hidden", "team-a", "team-b", "neutral");
     el.resultScreen.classList.add(winner === "A" ? "team-a" : "team-b");
     el.resultScreen.setAttribute("aria-hidden", "false");
+    // 精彩回放结束（或无回放直达）进入结算时播一次
+    playCheerSfx();
 
     if (el.resultEyebrow) {
       el.resultEyebrow.textContent = cleared
@@ -1996,6 +2050,7 @@
           b.vx = Math.abs(b.vx) * WALL_BOUNCE;
           clearBodyCurve(b);
           maybeImpactSpark(0, b.y, impact);
+          maybeBallHitSfx(impact);
           if (b.isBall) noteShotImpact("wall");
         } else if (b.x + b.r > W) {
           const impact = Math.abs(b.vx);
@@ -2003,6 +2058,7 @@
           b.vx = -Math.abs(b.vx) * WALL_BOUNCE;
           clearBodyCurve(b);
           maybeImpactSpark(W, b.y, impact);
+          maybeBallHitSfx(impact);
           if (b.isBall) noteShotImpact("wall");
         }
       }
@@ -2019,6 +2075,7 @@
         b.vy = Math.abs(b.vy) * WALL_BOUNCE;
         clearBodyCurve(b);
         maybeImpactSpark(b.x, 0, impact);
+        maybeBallHitSfx(impact);
         if (b.isBall) noteShotImpact("wall");
       } else if (!botOpen && b.y + b.r > L) {
         const impact = Math.abs(b.vy);
@@ -2026,6 +2083,7 @@
         b.vy = -Math.abs(b.vy) * WALL_BOUNCE;
         clearBodyCurve(b);
         maybeImpactSpark(b.x, L, impact);
+        maybeBallHitSfx(impact);
         if (b.isBall) noteShotImpact("wall");
       }
 
@@ -2053,6 +2111,7 @@
       b.vx = Math.abs(b.vx) * WALL_BOUNCE;
       clearBodyCurve(b);
       maybeImpactSpark(gx0, b.y, impact);
+      maybeBallHitSfx(impact);
       if (b.isBall) noteShotImpact("wall");
     } else if (b.x + b.r > gx1) {
       const impact = Math.abs(b.vx);
@@ -2060,6 +2119,7 @@
       b.vx = -Math.abs(b.vx) * WALL_BOUNCE;
       clearBodyCurve(b);
       maybeImpactSpark(gx1, b.y, impact);
+      maybeBallHitSfx(impact);
       if (b.isBall) noteShotImpact("wall");
     }
 
@@ -2070,6 +2130,7 @@
       b.vy = Math.abs(b.vy) * WALL_BOUNCE;
       clearBodyCurve(b);
       maybeImpactSpark(b.x, backY, impact);
+      maybeBallHitSfx(impact);
       if (b.isBall) noteShotImpact("wall");
     } else if (!isTop && b.y + b.r > backY) {
       const impact = Math.abs(b.vy);
@@ -2077,6 +2138,7 @@
       b.vy = -Math.abs(b.vy) * WALL_BOUNCE;
       clearBodyCurve(b);
       maybeImpactSpark(b.x, backY, impact);
+      maybeBallHitSfx(impact);
       if (b.isBall) noteShotImpact("wall");
     }
   }
@@ -2098,7 +2160,9 @@
         b.vx -= (1 + WALL_BOUNCE) * vn * nx;
         b.vy -= (1 + WALL_BOUNCE) * vn * ny;
         clearBodyCurve(b);
-        maybeImpactSpark(px, py, Math.abs(vn));
+        const impact = Math.abs(vn);
+        maybeImpactSpark(px, py, impact);
+        maybeBallHitSfx(impact);
         if (b.isBall) noteShotImpact("wall");
       }
     }
@@ -2142,7 +2206,10 @@
         b.vy += (jImp * ny) / b.mass;
         clearBodyCurve(a);
         clearBodyCurve(b);
-        maybeImpactSpark(a.x + nx * a.r, a.y + ny * a.r, Math.abs(velN));
+        const impact = Math.abs(velN);
+        maybeImpactSpark(a.x + nx * a.r, a.y + ny * a.r, impact);
+        // 球碰人 / 人碰人共用碰撞音
+        maybeBallHitSfx(impact);
 
         if (a.isBall && !b.isBall) {
           noteShotImpact("ballPlayer");
@@ -2263,7 +2330,7 @@
       const toA = state.scoreA;
       const toB = state.scoreB;
       const quality = rateGoalQuality(ctx, ownGoal);
-      considerHighlight(quality, ownGoal);
+      considerHighlight(quality, ownGoal, scorer);
       tickStatusOnTurnEnd(endingTeam);
       state.shotCtx = null;
       state.shotReplaySnap = null;
@@ -2306,17 +2373,22 @@
         onDone: () => {
           if (!state.running) return;
           if (isFinal) {
-            const resultOpts = {
-              winner,
-              ownGoal,
-              msg: cleared
-                ? "已通关本关，可返回继续。"
-                : training
-                  ? "对方先破门。可以再试或返回训练页。"
-                  : ownGoal
-                    ? `乌龙定胜负！最终比分 ${toA} : ${toB}`
-                    : `最终比分 ${toA} : ${toB}`,
-            };
+            let msg = cleared
+              ? "已通关本关，可返回继续。"
+              : training
+                ? "对方先破门。可以再试或返回训练页。"
+                : ownGoal
+                  ? `乌龙定胜负！最终比分 ${toA} : ${toB}`
+                  : `最终比分 ${toA} : ${toB}`;
+            if (!training && typeof state.onMatchDecide === "function") {
+              try {
+                const info = state.onMatchDecide(winner);
+                if (info && info.line) msg = `${msg}\n${info.line}`;
+              } catch (err) {
+                console.error("onMatchDecide failed", err);
+              }
+            }
+            const resultOpts = { winner, ownGoal, msg };
             if (state.bestHighlight && highlightsEnabled()) {
               beginHighlightReplay(resultOpts);
             } else {
@@ -2328,6 +2400,7 @@
           state.turn = kickOff;
           state.selected = null;
           syncEnergyDock();
+          playTurnHandoffSfx();
           setPhase("select");
         },
       });
@@ -2335,6 +2408,7 @@
     }
 
     if (strollAgain) {
+      // 同队再击：不算换手
       state.shotCtx = null;
       state.strollBonus = true;
       state.selected = null;
@@ -2350,6 +2424,7 @@
     state.turn = state.turn === "A" ? "B" : "A";
     state.selected = null;
     syncEnergyDock();
+    playTurnHandoffSfx();
     setPhase("select");
   }
 
@@ -3645,6 +3720,7 @@
             scored
           );
         }
+        playGoalSwishSfx();
         state.highlightSlowLeft = HIGHLIGHT_SLOW_SEC;
         state.goalFlash = 1;
         setPhase("highlightSlow");
@@ -3895,6 +3971,8 @@
       config && config.winScore > 0 ? config.winScore : WIN_SCORE;
     state.onMatchOver =
       config && typeof config.onMatchOver === "function" ? config.onMatchOver : null;
+    state.onMatchDecide =
+      config && typeof config.onMatchDecide === "function" ? config.onMatchDecide : null;
     state.onPhaseChange =
       config && typeof config.onPhaseChange === "function" ? config.onPhaseChange : null;
     state.autoRetryOnFail = !!(config && config.autoRetryOnFail);
