@@ -1,7 +1,7 @@
 /**
  * 人机决策：
- * - normal：偏混战，噪声大
- * - hard：用真实物理静默仿真搜射门；能进必进，否则推最佳控球/压迫
+ * - normal：像人——简单球短列表验票（能进必进），复杂球按意图少量采样抽签
+ * - hard：用真实物理静默仿真广搜；能进必进（破解级，训练/极难用）
  */
 (() => {
   "use strict";
@@ -319,110 +319,565 @@
     };
   }
 
+  /** 普通人机默认风格（偏均衡略攻；以后 Persona 可换这张表） */
+  const NORMAL_STYLE = {
+    shootHunger: 0.5,
+    clearHunger: 0.4,
+    foulHunger: 0.28,
+    curveBias: 0.32,
+    riskTemp: 14,
+    skillGreed: 0.38,
+  };
+
+  /** 进球路线弹射 ≤ 该值才算「干净简单球」（墙也计；>1 则非简单） */
+  const MAX_CLEAN_BOUNCES = 1;
+  /** 探针里干净进球占比达此线 → 走简单球必进逻辑 */
+  const CLEAN_APERTURE_MIN = 0.12;
+  /** 多弹射进球：仍可能尝试，但常偏移失手 */
+  const BANK_ATTEMPT_P = 0.4;
+  const BANK_OFFSET_P = 0.62;
+
+  function packShot(player, aim, power, curveSign, curveRadius, skillArmed, intent) {
+    return {
+      player,
+      aim,
+      power: Math.max(0.2, Math.min(1, power)),
+      curveSign: curveSign || 0,
+      curveRadius: curveRadius,
+      skillArmed: !!skillArmed,
+      intent: intent || "human",
+    };
+  }
+
+  function shotBounces(result) {
+    if (!result) return 99;
+    if (typeof result.bounces === "number") return result.bounces;
+    const walls = result.wallHits || 0;
+    const bp = result.ballPlayerHits || 0;
+    return walls + Math.max(0, bp - 1);
+  }
+
+  function isCleanGoal(result, team) {
+    return !!(result && result.scorer === team && shotBounces(result) <= MAX_CLEAN_BOUNCES);
+  }
+
+  /** 出手角度偏移（多弹射球失手用；不重新验进） */
+  function offsetAimPower(aim, power, degLo, degHi) {
+    const base = Math.atan2(aim.y, aim.x);
+    const deg = rand(degLo, degHi) * (Math.random() < 0.5 ? -1 : 1);
+    const ang = base + (deg * Math.PI) / 180;
+    return {
+      aim: { x: Math.cos(ang), y: Math.sin(ang) },
+      power: Math.max(0.25, Math.min(1, power * rand(0.82, 1.06))),
+    };
+  }
+
   /**
-   * @param {{ bodies: object[], team: "A"|"B", pitch: { widthM:number, lengthM:number }, phys: object }} ctx
-   * @returns {{ player: object, aim: {x:number,y:number}, power: number, curveSign: number, curveRadius: number, intent: string }}
+   * 人选权重（不像极难死磕离球最近）：
+   * - 距离只做软衰减
+   * - 中圈/开球附近：明显偏向两侧球员（防守习惯，也更像人）
+   * - 身位在球「身后」（利于朝门推）加分
+   * - 整体仍偏进攻（前锋略加；己半场后卫只是略抬，不强行清场）
+   */
+  function humanPickWeight(p, ball, team, pitch) {
+    if (!p || !ball) return 0.01;
+    const W = pitch.widthM || 68;
+    const L = pitch.lengthM || 105;
+    const midX = W * 0.5;
+    const midY = L * 0.5;
+    const dBall = Math.hypot(p.x - ball.x, p.y - ball.y);
+    // 软距离：远一点仍常被点到，不会只剩最近那人
+    let w = 1 / (1.35 + dBall * 0.055);
+
+    const ballFromCenter = Math.hypot(ball.x - midX, ball.y - midY);
+    const kickoffish = ballFromCenter < L * 0.14;
+    const sideNess = Math.min(1, Math.abs(p.x - midX) / (W * 0.42));
+    if (kickoffish) {
+      // 开球：两侧远高于中路
+      w *= 0.42 + sideNess * 1.35;
+    } else if (ballFromCenter < L * 0.28) {
+      w *= 0.7 + sideNess * 0.55;
+    }
+
+    // 身位：站在进攻方向后方更容易「人先点到的」
+    const behind =
+      team === "A" ? p.y >= ball.y - 1.5 : p.y <= ball.y + 1.5;
+    w *= behind ? 1.28 : 0.72;
+
+    const ownHalf =
+      team === "A" ? ball.y >= midY : ball.y <= midY;
+    const lane = p.lane || "mid";
+    if (lane === "fwd") w *= ownHalf ? 0.95 : 1.18;
+    else if (lane === "def") w *= ownHalf ? 1.12 : 0.88;
+    else w *= 1.02;
+
+    // 与球同侧边路略加（边路回追/边路开球）
+    if ((p.x - midX) * (ball.x - midX) > 0) w *= 1.08;
+
+    w *= rand(0.78, 1.22);
+    return Math.max(0.02, w);
+  }
+
+  /** 按人感权重排序，取前 n 名（带噪声，非稳定最近） */
+  function rankPlayersHuman(pool, ball, team, pitch, n) {
+    const scored = (pool || []).map((p) => ({
+      p,
+      w: humanPickWeight(p, ball, team, pitch),
+    }));
+    scored.sort((a, b) => b.w - a.w);
+    const k = Math.max(1, Math.min(n || 2, scored.length));
+    return scored.slice(0, k).map((s) => s.p);
+  }
+
+  function pickPlayerHuman(pool, ball, team, pitch) {
+    const items = (pool || []).map((p) => ({
+      v: p,
+      w: humanPickWeight(p, ball, team, pitch),
+    }));
+    if (!items.length) return null;
+    return pickWeighted(items);
+  }
+
+  /**
+   * 轻量探针：用人感首选球员 + 几何瞄准扇面，估「干净进球」角度占比。
+   * 不做极难级全图密扫；约 30～40 次仿真，手机可接受。
+   */
+  function probeCleanAperture(ctx, pool, ball) {
+    const { team, pitch, phys, evaluateShot } = ctx;
+    const ranked = rankPlayersHuman(pool, ball, team, pitch, 2);
+    const player = ranked[0];
+    if (!player) return { cleanRatio: 0, tested: 0, clean: 0 };
+
+    const targets = goalTargets(team, pitch);
+    const baseAims = geometricAims(player, ball, targets);
+    const aims = [];
+    for (const a of baseAims) {
+      aims.push(a);
+      for (const d of [-10, -5, 5, 10]) {
+        aims.push(rotate(a, (d * Math.PI) / 180));
+      }
+    }
+    const powers = [0.85, 1];
+    let tested = 0;
+    let clean = 0;
+    const seen = new Set();
+    for (const aim of aims) {
+      const key = `${aim.x.toFixed(3)},${aim.y.toFixed(3)}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      for (const power of powers) {
+        tested++;
+        const result = evaluateShot({
+          playerId: player.id,
+          aim,
+          power,
+          curveSign: 0,
+          curveRadius: phys.CURVE_R_MAX,
+          skillArmed: false,
+        });
+        if (isCleanGoal(result, team)) clean++;
+      }
+    }
+    return {
+      cleanRatio: tested > 0 ? clean / tested : 0,
+      tested,
+      clean,
+      player,
+    };
+  }
+
+  function softmaxPick(scored, temp) {
+    if (!scored.length) return null;
+    const t = Math.max(0.5, temp || 10);
+    let maxS = -Infinity;
+    for (const it of scored) if (it.s > maxS) maxS = it.s;
+    let sum = 0;
+    const weights = scored.map((it) => {
+      const w = Math.exp((it.s - maxS) / t);
+      sum += w;
+      return w;
+    });
+    let r = Math.random() * sum;
+    for (let i = 0; i < scored.length; i++) {
+      r -= weights[i];
+      if (r <= 0) return scored[i].v;
+    }
+    return scored[scored.length - 1].v;
+  }
+
+  function lightCurves(player, phys, skillArmed, bias) {
+    const out = [{ curveSign: 0, curveRadius: phys.CURVE_R_MAX }];
+    if (!canUseCurve(player, phys, skillArmed) || bias <= 0) return out;
+    if (Math.random() > bias) return out;
+    const rMin = player.mods ? player.mods.curveRMin : phys.CURVE_R_MIN;
+    const mid = rMin + (phys.CURVE_R_MAX - rMin) * 0.5;
+    out.push(
+      { curveSign: -1, curveRadius: mid },
+      { curveSign: 1, curveRadius: mid }
+    );
+    return out;
+  }
+
+  function humanSkillOpts(player, greed) {
+    const opts = [false];
+    if (player.energy >= 1 && player.skill && Math.random() < greed) opts.push(true);
+    return opts;
+  }
+
+  /**
+   * 简单球：只对「弹射≤1」的干净进球必进；多弹射进球可碰运气但常偏移
+   */
+  function decideSimpleHuman(ctx, style, pool, ball) {
+    const { team, pitch, phys, evaluateShot } = ctx;
+    const targets = goalTargets(team, pitch);
+    // 验 2～3 个「人会点」的人选，而不是离球最近两人
+    const near = rankPlayersHuman(pool, ball, team, pitch, Math.min(3, pool.length));
+
+    const powers = [0.72, 0.88, 1];
+    let bestClean = null;
+    let bestCleanSteps = Infinity;
+    let bestBank = null;
+    let bestBankSteps = Infinity;
+    let bestUtil = null;
+    let bestUtilScore = -Infinity;
+    let evaluated = 0;
+    const budget = 96;
+
+    for (const player of near) {
+      for (const skillArmed of humanSkillOpts(player, style.skillGreed * 0.85)) {
+        const aims = geometricAims(player, ball, targets);
+        // 简单球默认直线；低概率带一点弧（弧进球若弹射多会进 bank）
+        const curves = lightCurves(player, phys, skillArmed, style.curveBias * 0.25);
+        for (const aim of aims) {
+          for (const power of powers) {
+            for (const curve of curves) {
+              if (evaluated >= budget) break;
+              evaluated++;
+              const result = evaluateShot({
+                playerId: player.id,
+                aim,
+                power,
+                curveSign: curve.curveSign,
+                curveRadius: curve.curveRadius,
+                skillArmed,
+              });
+              if (!result) continue;
+              if (result.scorer === team) {
+                const bounces = shotBounces(result);
+                const cand = { player, aim, power, curve, skillArmed, bounces };
+                if (bounces <= MAX_CLEAN_BOUNCES) {
+                  if (!bestClean || result.steps < bestCleanSteps) {
+                    bestClean = cand;
+                    bestCleanSteps = result.steps;
+                  }
+                } else if (!bestBank || result.steps < bestBankSteps) {
+                  bestBank = cand;
+                  bestBankSteps = result.steps;
+                }
+                continue;
+              }
+              const u = utilityScore(team, pitch, result, player, ball);
+              if (u > bestUtilScore) {
+                bestUtilScore = u;
+                bestUtil = { player, aim, power, curve, skillArmed };
+              }
+            }
+          }
+        }
+      }
+    }
+
+    // 干净进球：微调仍须保持干净进球
+    if (bestClean) {
+      const base = bestClean;
+      const baseAng = Math.atan2(base.aim.y, base.aim.x);
+      for (const d of [-3, -2, 2, 3]) {
+        const ang = baseAng + (d * Math.PI) / 180;
+        const aim = { x: Math.cos(ang), y: Math.sin(ang) };
+        for (const dp of [-0.06, 0.05]) {
+          const power = Math.max(0.4, Math.min(1, base.power + dp));
+          const result = evaluateShot({
+            playerId: base.player.id,
+            aim,
+            power,
+            curveSign: base.curve.curveSign,
+            curveRadius: base.curve.curveRadius,
+            skillArmed: base.skillArmed,
+          });
+          if (
+            isCleanGoal(result, team) &&
+            result.steps < bestCleanSteps
+          ) {
+            bestClean = {
+              player: base.player,
+              aim,
+              power,
+              curve: base.curve,
+              skillArmed: base.skillArmed,
+              bounces: shotBounces(result),
+            };
+            bestCleanSteps = result.steps;
+          }
+        }
+      }
+      return packShot(
+        bestClean.player,
+        bestClean.aim,
+        bestClean.power,
+        bestClean.curve.curveSign,
+        bestClean.curve.curveRadius,
+        bestClean.skillArmed,
+        "simpleGoal"
+      );
+    }
+
+    // 只有多弹射进球：一定概率尝试，且常偏移失手
+    if (bestBank && Math.random() < BANK_ATTEMPT_P) {
+      if (Math.random() < BANK_OFFSET_P) {
+        const off = offsetAimPower(bestBank.aim, bestBank.power, 6, 16);
+        return packShot(
+          bestBank.player,
+          off.aim,
+          off.power,
+          bestBank.curve.curveSign,
+          bestBank.curve.curveRadius,
+          bestBank.skillArmed,
+          "bankOffset"
+        );
+      }
+      return packShot(
+        bestBank.player,
+        bestBank.aim,
+        bestBank.power,
+        bestBank.curve.curveSign,
+        bestBank.curve.curveRadius,
+        bestBank.skillArmed,
+        "bankLucky"
+      );
+    }
+
+    if (bestUtil) {
+      return packShot(
+        bestUtil.player,
+        bestUtil.aim,
+        bestUtil.power,
+        bestUtil.curve.curveSign,
+        bestUtil.curve.curveRadius,
+        bestUtil.skillArmed,
+        "simpleSetup"
+      );
+    }
+
+    const p = near[0];
+    return packShot(
+      p,
+      normalize(ball.x - p.x, ball.y - p.y),
+      0.85,
+      0,
+      phys.CURVE_R_MAX,
+      false,
+      "simpleFallback"
+    );
+  }
+
+  /**
+   * 复杂球：按意图少量带噪样本 → 仿真打分 → 温度抽签（不广搜、不加密进球）
+   */
+  function decideComplexHuman(ctx, style, pool, ball, foes) {
+    const { team, pitch, phys, evaluateShot } = ctx;
+    const attack = team === "A" ? { x: 0, y: -1 } : { x: 0, y: 1 };
+    const midX = pitch.widthM * 0.5;
+    const player = pickPlayerHuman(pool, ball, team, pitch) || pool[0];
+    const toBall = normalize(ball.x - player.x, ball.y - player.y);
+    const nearestFoe = foes
+      .map((f) => ({ f, d: Math.hypot(f.x - ball.x, f.y - ball.y) }))
+      .sort((a, b) => a.d - b.d)[0];
+    const side = ball.x < midX ? -1 : 1;
+
+    const intent = pickWeighted([
+      { v: "clear", w: 0.22 + style.clearHunger * 0.55 },
+      { v: "bumpFoe", w: 0.12 + style.foulHunger * 0.5 },
+      { v: "gambleShot", w: 0.18 + style.shootHunger * 0.45 },
+      { v: "softTouch", w: 0.2 },
+      { v: "curveGamble", w: 0.08 + style.curveBias * 0.35 },
+    ]);
+
+    const skillArmed =
+      player.energy >= 1 && player.skill && Math.random() < style.skillGreed * 0.7;
+    const samples = [];
+
+    function addSample(aim, power, curveSign, curveRadius, tag) {
+      samples.push({
+        player,
+        aim: normalize(aim.x, aim.y),
+        power: Math.max(0.25, Math.min(1, power)),
+        curveSign: curveSign || 0,
+        curveRadius: curveRadius || phys.CURVE_R_MAX,
+        skillArmed,
+        tag,
+      });
+    }
+
+    if (intent === "clear") {
+      // 大脚解围：球往边线 + 进攻方向推，远离自家门
+      for (let i = 0; i < 5; i++) {
+        const clearDir = normalize(side * rand(0.55, 1.2), attack.y * rand(0.45, 1.1));
+        const gap = ball.r + player.r;
+        const contact = {
+          x: ball.x - clearDir.x * gap * 0.98,
+          y: ball.y - clearDir.y * gap * 0.98,
+        };
+        addSample(
+          rotate(normalize(contact.x - player.x, contact.y - player.y), rand(-0.2, 0.2)),
+          rand(0.75, 1),
+          0,
+          phys.CURVE_R_MAX,
+          "clear"
+        );
+      }
+    } else if (intent === "bumpFoe" && nearestFoe) {
+      for (let i = 0; i < 4; i++) {
+        addSample(
+          rotate(
+            normalize(nearestFoe.f.x - player.x, nearestFoe.f.y - player.y),
+            rand(-0.25, 0.25)
+          ),
+          rand(0.65, 1),
+          0,
+          phys.CURVE_R_MAX,
+          "bump"
+        );
+      }
+    } else if (intent === "softTouch") {
+      for (let i = 0; i < 5; i++) {
+        const push = normalize(
+          toBall.x * 0.55 + attack.x * 0.2 + rand(-0.35, 0.35),
+          toBall.y * 0.55 + attack.y * 0.45 + rand(-0.25, 0.25)
+        );
+        addSample(rotate(push, rand(-0.3, 0.3)), rand(0.35, 0.62), 0, phys.CURVE_R_MAX, "soft");
+      }
+    } else if (intent === "curveGamble" && canUseCurve(player, phys, skillArmed)) {
+      const targets = goalTargets(team, pitch);
+      const aims = geometricAims(player, ball, targets);
+      const rMin = player.mods ? player.mods.curveRMin : phys.CURVE_R_MIN;
+      const mid = rMin + (phys.CURVE_R_MAX - rMin) * rand(0.25, 0.65);
+      for (let i = 0; i < 6; i++) {
+        const aim = rotate(aims[i % aims.length], rand(-0.22, 0.22));
+        addSample(aim, rand(0.7, 1), Math.random() < 0.5 ? -1 : 1, mid, "curve");
+      }
+    } else {
+      // gambleShot：朝门几何 + 明显噪声，少量样本碰运气
+      const targets = goalTargets(team, pitch);
+      const aims = geometricAims(player, ball, targets);
+      for (let i = 0; i < 7; i++) {
+        const aim = rotate(aims[i % aims.length], rand(-0.28, 0.28));
+        addSample(aim, rand(0.68, 1), 0, phys.CURVE_R_MAX, "gamble");
+      }
+    }
+
+    const scored = [];
+    for (const s of samples) {
+      const result = evaluateShot({
+        playerId: s.player.id,
+        aim: s.aim,
+        power: s.power,
+        curveSign: s.curveSign,
+        curveRadius: s.curveRadius,
+        skillArmed: s.skillArmed,
+      });
+      if (!result) continue;
+      // 乌龙样本直接丢掉
+      if (result.scorer && result.scorer !== team) continue;
+      let u = utilityScore(team, pitch, result, s.player, ball);
+      // 偶然进球加权；多弹射进球权重明显更低（碰运气）
+      if (result.scorer === team) {
+        const bounces = shotBounces(result);
+        u += bounces <= MAX_CLEAN_BOUNCES ? 160 : 55;
+        s._bounces = bounces;
+        s._scored = true;
+      }
+      if (s.tag === "clear") u += style.clearHunger * 12;
+      if (s.tag === "bump") u += style.foulHunger * 10;
+      scored.push({ v: s, s: u });
+    }
+
+    const pick = softmaxPick(scored, style.riskTemp);
+    if (pick) {
+      // 复杂局面抽到多弹射进球：常偏移失手
+      if (pick._scored && (pick._bounces || 0) > MAX_CLEAN_BOUNCES && Math.random() < BANK_OFFSET_P) {
+        const off = offsetAimPower(pick.aim, pick.power, 7, 18);
+        return packShot(
+          pick.player,
+          off.aim,
+          off.power,
+          pick.curveSign,
+          pick.curveRadius,
+          pick.skillArmed,
+          "complex:bankOffset"
+        );
+      }
+      return packShot(
+        pick.player,
+        pick.aim,
+        pick.power,
+        pick.curveSign,
+        pick.curveRadius,
+        pick.skillArmed,
+        "complex:" + (pick.tag || intent)
+      );
+    }
+
+    return packShot(
+      player,
+      toBall,
+      0.8,
+      0,
+      phys.CURVE_R_MAX,
+      false,
+      "complexFallback"
+    );
+  }
+
+  /**
+   * 无仿真时的弱兜底（不应常见）
+   */
+  function decideNormalBlind(ctx) {
+    const { bodies, team, pitch, phys } = ctx;
+    const ball = bodies.find((b) => b.isBall);
+    const mine = bodies.filter((b) => b.team === team && !b.isBall && !(b.injuredTurns > 0));
+    const pool = mine.length ? mine : bodies.filter((b) => b.team === team && !b.isBall);
+    if (!ball || !pool.length) return null;
+    const player = pickPlayerHuman(pool, ball, team, pitch) || pool[0];
+    const targets = goalTargets(team, pitch);
+    const aims = geometricAims(player, ball, targets);
+    return packShot(player, aims[1] || aims[0], 0.88, 0, phys.CURVE_R_MAX, false, "blind");
+  }
+
+  /**
+   * @param {{ bodies: object[], team: "A"|"B", pitch: { widthM:number, lengthM:number }, phys: object, evaluateShot?: Function }} ctx
    */
   function decideNormal(ctx) {
-    const { bodies, team, pitch, phys } = ctx;
+    const { bodies, team, pitch, evaluateShot } = ctx;
     const ball = bodies.find((b) => b.isBall);
     const mine = bodies.filter((b) => b.team === team && !b.isBall);
     const foes = bodies.filter((b) => b.team !== team && !b.isBall);
     if (!ball || !mine.length) return null;
 
-    // 进攻方向：蓝在下攻上(-y)，红在上攻下(+y)
-    const attack = team === "A" ? { x: 0, y: -1 } : { x: 0, y: 1 };
-    const goalX = pitch.widthM * 0.5;
-    const goalY = team === "A" ? 0 : pitch.lengthM;
+    if (typeof evaluateShot !== "function") return decideNormalBlind(ctx);
 
-    // 选人：离球越近权重越高，再掺随机，偶尔故意选远的搅局
-    const scored = mine.map((p) => {
-      const d = Math.hypot(p.x - ball.x, p.y - ball.y);
-      const near = 1 / (0.8 + d);
-      const noise = rand(0.15, 1.1);
-      return { p, w: near * noise };
-    });
-    if (Math.random() < 0.18) {
-      // 偶尔瞎选一个，制造莫名其妙冲撞
-      scored.forEach((s) => {
-        s.w = rand(0.3, 1);
-      });
+    const healthy = mine.filter((p) => !(p.injuredTurns > 0));
+    const pool = healthy.length ? healthy : mine;
+    const style = NORMAL_STYLE;
+
+    // 用「干净进球角度占比」判简单球（比纯几何清晰度靠谱；探针很轻）
+    const probe = probeCleanAperture(ctx, pool, ball);
+    const apertureCut =
+      CLEAN_APERTURE_MIN - (style.shootHunger - 0.5) * 0.06;
+
+    if (probe.cleanRatio >= apertureCut) {
+      return decideSimpleHuman(ctx, style, pool, ball);
     }
-    const healthy = scored.filter((s) => !(s.p.injuredTurns > 0));
-    const pool = healthy.length ? healthy : scored;
-    const player = pickWeighted(scraped(pool));
-    if (!player) return null;
-
-    const toBall = normalize(ball.x - player.x, ball.y - player.y);
-    const nearestFoe = foes
-      .map((f) => ({ f, d: Math.hypot(f.x - player.x, f.y - player.y) }))
-      .sort((a, b) => a.d - b.d)[0];
-    const toFoe = nearestFoe
-      ? normalize(nearestFoe.f.x - player.x, nearestFoe.f.y - player.y)
-      : attack;
-    const toGoal = normalize(goalX - player.x, goalY - player.y);
-
-    // 意图权重：撞球为主，偶尔撞人 / 朝门乱射 / 完全乱打
-    const intent = pickWeighted([
-      { v: "smashBall", w: 0.52 },
-      { v: "bumpFoe", w: 0.22 },
-      { v: "roughShot", w: 0.18 },
-      { v: "wild", w: 0.08 },
-    ]);
-
-    let aim;
-    let power;
-    if (intent === "smashBall") {
-      // 朝球，夹角噪声很大 → 经常擦到或撞歪
-      aim = rotate(toBall, rand(-0.55, 0.55));
-      power = rand(0.48, 0.92);
-    } else if (intent === "bumpFoe") {
-      aim = rotate(toFoe, rand(-0.4, 0.4));
-      power = rand(0.55, 0.98);
-    } else if (intent === "roughShot") {
-      // 「朝门」但噪声夸张，不追求进球线
-      const blend = normalize(
-        toBall.x * 0.35 + toGoal.x * 0.65,
-        toBall.y * 0.35 + toGoal.y * 0.65
-      );
-      aim = rotate(blend, rand(-0.75, 0.75));
-      power = rand(0.62, 1);
-    } else {
-      aim = rotate(attack, rand(-Math.PI, Math.PI));
-      power = rand(0.35, 0.88);
-    }
-
-    // 球很近时更爱全力砸，制造混战
-    const ballDist = Math.hypot(player.x - ball.x, player.y - ball.y);
-    if (ballDist < player.r * 3.2 && Math.random() < 0.55) {
-      power = Math.max(power, rand(0.72, 1));
-      aim = rotate(toBall, rand(-0.35, 0.35));
-    }
-
-    // 弧线：多数直线/轻弯；弧线属性 0 / 禁用时绝不拧
-    let curveSign = 0;
-    let curveRadius = phys.CURVE_R_MAX;
-    const canCurve = !(player.mods && player.mods.curveDisabled) && !player.disableCurveShot;
-    if (canCurve) {
-      const rMin = player.mods ? player.mods.curveRMin : phys.CURVE_R_MIN;
-      const roll = Math.random();
-      if (roll < 0.28) {
-        curveSign = Math.random() < 0.5 ? -1 : 1;
-        curveRadius = rand(rMin + (phys.CURVE_R_MAX - rMin) * 0.35, phys.CURVE_R_MAX * 0.95);
-      } else if (roll < 0.4) {
-        curveSign = Math.random() < 0.5 ? -1 : 1;
-        curveRadius = rand(rMin, rMin + (phys.CURVE_R_MAX - rMin) * 0.45);
-      }
-    }
-
-    return {
-      player,
-      aim,
-      power: Math.max(0.2, Math.min(1, power)),
-      curveSign,
-      curveRadius,
-      intent,
-    };
+    return decideComplexHuman(ctx, style, pool, ball, foes);
   }
 
   function decide(ctx) {

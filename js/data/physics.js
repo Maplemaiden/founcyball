@@ -5,6 +5,8 @@ window.FOUNCY_PHYSICS = {
     widthM: 68,
     goalWidthM: 68 * (2 / 5) * (5 / 6), // 原 2/5 底线宽的 5/6 → 约底线 1/3
     goalDepthM: 6,
+    /** 四角 45° 切角：沿两边各砍这么多米（适中，约 1.6×球员半径） */
+    cornerCutM: 10,
     centerCircleR: 9.15,
     /** 与对局 drawPitch 一致的标准示意尺寸（米） */
     penaltyW: 40.32,
@@ -23,8 +25,9 @@ window.FOUNCY_PHYSICS = {
   TURN_SWITCH_SPEED: 2.4,
   WALL_BOUNCE: 0.9,
   BODY_RESTITUTION: 0.78,
-  MAX_PULL_PX: 140,
-  MIN_PULL_PX: 28,
+  // 基准拖距；对局里会按画布宽度再放大，桌面/手机都能拉满
+  MAX_PULL_PX: 110,
+  MIN_PULL_PX: 24,
   TRAIL_STEPS: 100,
   // 弧线半径：越大越直。操作从 R_MAX 拧到球员个人 Rmin
   CURVE_R_MAX: 125,

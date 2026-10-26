@@ -11,7 +11,8 @@
   const rankedSession = {
     active: false,
     oppCups: 0,
-    aiDifficulty: "normal",
+    /** 本场是否已在决胜时写过杯（防退出重复扣杯） */
+    settled: false,
   };
 
   const trainingData = window.FOUNCY_TRAINING || { difficulties: [], levels: [], blurb: "" };
@@ -75,6 +76,19 @@
     ownedGrid: document.getElementById("ownedGrid"),
     lockedGrid: document.getElementById("lockedGrid"),
     btnExit: document.getElementById("btnExitMatch"),
+    btnHomeSettings: document.getElementById("btnHomeSettings"),
+    btnMatchSettings: document.getElementById("btnMatchSettings"),
+    settingsSheet: document.getElementById("settingsSheet"),
+    settingsSheetBackdrop: document.getElementById("settingsSheetBackdrop"),
+    settingsSheetClose: document.getElementById("settingsSheetClose"),
+    btnSfxMute: document.getElementById("btnSfxMute"),
+    sfxVolSlider: document.getElementById("sfxVolSlider"),
+    sfxVolLabel: document.getElementById("sfxVolLabel"),
+    exitConfirm: document.getElementById("exitConfirm"),
+    exitConfirmBackdrop: document.getElementById("exitConfirmBackdrop"),
+    exitConfirmCancel: document.getElementById("exitConfirmCancel"),
+    exitConfirmOk: document.getElementById("exitConfirmOk"),
+    exitConfirmMsg: document.getElementById("exitConfirmMsg"),
     btnBattle: document.getElementById("btnBattle"),
     btnTogglePitch: document.getElementById("btnTogglePitch"),
     homeStage: document.getElementById("homeStage"),
@@ -504,8 +518,6 @@
   const roster = {
     /** "ranked" | "friendly" | "online" —— 仅影响开战，编队页共用 */
     mode: "ranked",
-    /** "normal" | "hard" —— 仅排位赛人机 */
-    aiDifficulty: "normal",
     team: "A",
     activeSlot: 0,
     pitchFolded: false,
@@ -1267,16 +1279,17 @@
     const profile = loadProfile();
     const oppCups =
       Rank && typeof Rank.rollOpponentCups === "function"
-        ? Rank.rollOpponentCups(profile.cups, roster.aiDifficulty)
+        ? Rank.rollOpponentCups(profile.cups, "normal")
         : Math.max(0, (profile.cups || 0) + 20);
     rankedSession.active = true;
     rankedSession.oppCups = oppCups;
-    rankedSession.aiDifficulty = roster.aiDifficulty;
+    rankedSession.settled = false;
   }
 
   function clearRankedSession() {
     rankedSession.active = false;
     rankedSession.oppCups = 0;
+    rankedSession.settled = false;
   }
 
   /** 排位终局：写杯数；返回给结算页的文案 */
@@ -1286,11 +1299,9 @@
     }
     const won = winner === "A";
     const result = Rank.applyMatchResult(won, rankedSession.oppCups);
+    rankedSession.settled = true;
     // 再来一局：按新杯数重roll对手
-    rankedSession.oppCups = Rank.rollOpponentCups(
-      result.cupsAfter,
-      rankedSession.aiDifficulty
-    );
+    rankedSession.oppCups = Rank.rollOpponentCups(result.cupsAfter, "normal");
     renderRankHome();
     return result;
   }
@@ -1306,21 +1317,118 @@
       return;
     }
     const rank = currentRank();
-    const diff = roster.aiDifficulty === "hard" ? "极难" : "普通";
-    ui.arenaSub.textContent = `${rank.name} · ${diff}电脑`;
+    ui.arenaSub.textContent = `${rank.name} · 人机排位`;
   }
 
-  function syncDiffToggle() {
-    const wrap = document.getElementById("diffToggle");
-    if (wrap) wrap.classList.toggle("hidden", !isRanked());
-    document.querySelectorAll("[data-ai-diff]").forEach((pill) => {
-      pill.classList.toggle(
-        "on",
-        pill.getAttribute("data-ai-diff") === roster.aiDifficulty
-      );
-    });
-    syncArenaSub();
-    syncBattleNudge();
+  function syncSettingsUi() {
+    const Audio = window.FouncyAudio;
+    const muted = Audio && typeof Audio.isMuted === "function" ? Audio.isMuted() : false;
+    const vol =
+      Audio && typeof Audio.getVolume === "function" ? Audio.getVolume() : 0.85;
+    if (ui.btnSfxMute) {
+      ui.btnSfxMute.classList.toggle("on", !muted);
+      ui.btnSfxMute.setAttribute("aria-pressed", muted ? "false" : "true");
+      ui.btnSfxMute.textContent = muted ? "关" : "开";
+    }
+    const pct = Math.round(Math.max(0, Math.min(1, vol)) * 100);
+    if (ui.sfxVolSlider) ui.sfxVolSlider.value = String(pct);
+    if (ui.sfxVolLabel) ui.sfxVolLabel.textContent = `${pct}%`;
+  }
+
+  function openSettingsSheet() {
+    if (!ui.settingsSheet) return;
+    if (window.FouncyAudio && typeof window.FouncyAudio.unlock === "function") {
+      window.FouncyAudio.unlock();
+    }
+    syncSettingsUi();
+    ui.settingsSheet.classList.remove("hidden");
+    ui.settingsSheet.setAttribute("aria-hidden", "false");
+  }
+
+  function closeSettingsSheet() {
+    if (!ui.settingsSheet) return;
+    ui.settingsSheet.classList.add("hidden");
+    ui.settingsSheet.setAttribute("aria-hidden", "true");
+  }
+
+  function openExitConfirm() {
+    if (!ui.exitConfirm) return;
+    closeSettingsSheet();
+    if (ui.exitConfirmMsg) {
+      ui.exitConfirmMsg.textContent = rankedSession.active
+        ? "现在退出将记为失败并扣除杯数。"
+        : "现在退出将视为本场失败。";
+    }
+    ui.exitConfirm.classList.remove("hidden");
+    ui.exitConfirm.setAttribute("aria-hidden", "false");
+  }
+
+  function closeExitConfirm() {
+    if (!ui.exitConfirm) return;
+    ui.exitConfirm.classList.add("hidden");
+    ui.exitConfirm.setAttribute("aria-hidden", "true");
+  }
+
+  /** 离开对局回大厅（结算页点返回 / 已结算后再退） */
+  function leaveMatchToLobby() {
+    if (window.FouncyBall) window.FouncyBall.stop();
+    clearRankedSession();
+    online.matchStarted = false;
+    setChatFabVisible(false);
+    closeChatSheet();
+    tutorialActiveLevel = null;
+    syncTutorReplayBtn();
+    syncTutorDockLock();
+
+    if (isOnline() && online.role) {
+      show("online");
+      syncOnlineUi();
+      return;
+    }
+    renderRankHome();
+    if (!isTutorialDone()) {
+      show("train");
+      return;
+    }
+    const ret = lobbyReturn === "match" ? "home" : lobbyReturn || "home";
+    show(ret === "train" || ret === "home" || ret === "roster" || ret === "skills" ? ret : "home");
+  }
+
+  /**
+   * 确认退出：未结束则先进结算（0:先到分判负，排位走 onMatchDecide 扣杯）；
+   * 已在结算则直接回大厅。
+   */
+  function leaveMatchConfirmed() {
+    closeExitConfirm();
+    closeSettingsSheet();
+    hideTutorGuide();
+    hideTutorIntro();
+
+    const resultEl = document.getElementById("resultScreen");
+    const resultOpen = !!(resultEl && !resultEl.classList.contains("hidden"));
+
+    // 新手 / 训练中途退：不走排位结算页，直接回训练
+    if (tutorialActiveLevel || (!isTutorialDone() && lobbyReturn === "train")) {
+      leaveMatchToLobby();
+      return;
+    }
+
+    // 已结算或已在结算页：再点退出 = 回大厅
+    if (resultOpen || rankedSession.settled) {
+      leaveMatchToLobby();
+      return;
+    }
+
+    // 对局中：强制 0:先到分 判负并弹出结算（杯数文案由 onMatchDecide 写入）
+    if (
+      window.FouncyBall &&
+      typeof window.FouncyBall.forfeitAsLoss === "function" &&
+      window.FouncyBall.forfeitAsLoss()
+    ) {
+      return;
+    }
+
+    leaveMatchToLobby();
   }
 
   function syncDock(active) {
@@ -1328,6 +1436,82 @@
       const nav = btn.getAttribute("data-nav");
       btn.classList.toggle("on", nav === active);
     });
+  }
+
+  const LOBBY_ORDER = ["train", "roster", "home", "skills", "market"];
+  let lobbyPageAnim = null;
+  let lobbyPageName = "home";
+
+  function lobbyIndex(name) {
+    const i = LOBBY_ORDER.indexOf(name);
+    return i >= 0 ? i : 2;
+  }
+
+  function clearLobbyPageClasses(el) {
+    if (!el) return;
+    el.classList.remove(
+      "is-away",
+      "page-active",
+      "page-enter-from-left",
+      "page-enter-from-right",
+      "page-leave-to-left",
+      "page-leave-to-right",
+      "hidden"
+    );
+  }
+
+  /** 大厅页翻页过渡；同页/无动画则直接切换 */
+  function transitionLobbyPage(fromName, toName) {
+    const fromEl = fromName && ui.screens[fromName] ? ui.screens[fromName] : null;
+    const toEl = ui.screens[toName];
+    if (!toEl) return;
+
+    Object.entries(ui.screens).forEach(([k, el]) => {
+      if (k === "match" || !el) return;
+      if (el !== fromEl && el !== toEl) {
+        clearLobbyPageClasses(el);
+        el.classList.add("is-away");
+      }
+    });
+
+    if (!fromEl || fromEl === toEl || fromName === toName) {
+      Object.entries(ui.screens).forEach(([k, el]) => {
+        if (k === "match" || !el) return;
+        clearLobbyPageClasses(el);
+        if (el === toEl) el.classList.add("page-active");
+        else el.classList.add("is-away");
+      });
+      lobbyPageName = toName;
+      return;
+    }
+
+    if (lobbyPageAnim) {
+      clearTimeout(lobbyPageAnim);
+      lobbyPageAnim = null;
+    }
+
+    const dir = lobbyIndex(toName) >= lobbyIndex(fromName) ? 1 : -1;
+    clearLobbyPageClasses(fromEl);
+    clearLobbyPageClasses(toEl);
+    fromEl.classList.add("page-active");
+    toEl.classList.add(dir > 0 ? "page-enter-from-right" : "page-enter-from-left");
+
+    // 强制回流后再切 class，触发 transition
+    void toEl.offsetWidth;
+    fromEl.classList.remove("page-active");
+    fromEl.classList.add(dir > 0 ? "page-leave-to-left" : "page-leave-to-right");
+    toEl.classList.remove("page-enter-from-left", "page-enter-from-right");
+    toEl.classList.add("page-active");
+
+    lobbyPageAnim = setTimeout(() => {
+      clearLobbyPageClasses(fromEl);
+      fromEl.classList.add("is-away");
+      clearLobbyPageClasses(toEl);
+      toEl.classList.add("page-active");
+      lobbyPageAnim = null;
+    }, 430);
+
+    lobbyPageName = toName;
   }
 
   function playerSkill(p) {
@@ -1611,9 +1795,6 @@
     tutorialActiveLevel = isTutorLv && !isTutorialDone() ? lv.id : null;
     if (tutorialActiveLevel) {
       tutorSeen = Object.create(null);
-      if (ui.btnExit) ui.btnExit.textContent = "重试";
-    } else if (ui.btnExit) {
-      ui.btnExit.textContent = "退出";
     }
     syncTutorReplayBtn();
 
@@ -1656,7 +1837,6 @@
           if (winner === "A" && !stillTutor && fromTutor) {
             tutorialActiveLevel = null;
             syncTutorReplayBtn();
-            if (ui.btnExit) ui.btnExit.textContent = "退出";
             alert("新手训练完成！现在可以自由探索主页、编队等功能了。");
             show("home");
             return;
@@ -1664,7 +1844,6 @@
           // 非新手训练失败仍回训练页；新手失败由 autoRetryOnFail 原地重开，不会走到这里
           tutorialActiveLevel = null;
           syncTutorReplayBtn();
-          if (ui.btnExit) ui.btnExit.textContent = "退出";
           show("train");
         },
       });
@@ -1703,11 +1882,32 @@
     ui.screens.match.classList.toggle("hidden", !inMatch);
 
     if (!inMatch) {
-      Object.entries(ui.screens).forEach(([k, el]) => {
-        if (k === "match" || !el) return;
-        el.classList.toggle("hidden", k !== name);
-      });
-      syncDock(name);
+      const prev = lobbyPageName;
+      // online 不在底栏五页里，仍做左右翻入
+      if (name === "online") {
+        Object.entries(ui.screens).forEach(([k, el]) => {
+          if (k === "match" || !el) return;
+          clearLobbyPageClasses(el);
+          el.classList.toggle("is-away", k !== "online");
+          el.classList.toggle("page-active", k === "online");
+          el.classList.toggle("hidden", k !== "online");
+        });
+        lobbyPageName = "online";
+      } else {
+        // 从 online 回来或首次：直接落到目标页
+        if (prev === "online" || !ui.screens[prev]) {
+          Object.entries(ui.screens).forEach(([k, el]) => {
+            if (k === "match" || !el) return;
+            clearLobbyPageClasses(el);
+            el.classList.toggle("is-away", k !== name);
+            el.classList.toggle("page-active", k === name);
+          });
+          lobbyPageName = name;
+        } else {
+          transitionLobbyPage(prev, name);
+        }
+      }
+      syncDock(name === "online" ? "home" : name);
     }
 
     if (name !== "roster" && roster.posEditing) {
@@ -2485,7 +2685,7 @@
         teamA: resolveLine(roster.A),
         teamB: resolveLine(teamB),
         vsAI: isRanked(),
-        aiDifficulty: isRanked() ? roster.aiDifficulty : "normal",
+        aiDifficulty: "normal",
         winScore: 2,
         trainingId: null,
         trainingLayout: null,
@@ -2494,6 +2694,9 @@
           if (!rankedSession.active) return null;
           const result = settleRankedMatch(winner);
           return result ? { line: result.line } : null;
+        },
+        onRematch: () => {
+          if (rankedSession.active) rankedSession.settled = false;
         },
         onMatchOver: () => {
           clearRankedSession();
@@ -2610,7 +2813,8 @@
     document.querySelectorAll("[data-home-mode]").forEach((pill) => {
       pill.classList.toggle("on", pill.getAttribute("data-home-mode") === roster.mode);
     });
-    syncDiffToggle();
+    syncArenaSub();
+    syncBattleNudge();
   }
 
   document.querySelectorAll("[data-home-mode]").forEach((pill) => {
@@ -2623,17 +2827,39 @@
     });
   });
 
-  document.querySelectorAll("[data-ai-diff]").forEach((pill) => {
-    pill.addEventListener("click", () => {
-      const diff = pill.getAttribute("data-ai-diff");
-      if (diff === "normal" || diff === "hard") {
-        roster.aiDifficulty = diff;
-        syncDiffToggle();
-      }
-    });
-  });
-
   if (ui.btnBattle) ui.btnBattle.addEventListener("click", startMatchFromLobby);
+
+  if (ui.btnHomeSettings) ui.btnHomeSettings.addEventListener("click", openSettingsSheet);
+  if (ui.btnMatchSettings) ui.btnMatchSettings.addEventListener("click", openSettingsSheet);
+  if (ui.settingsSheetClose) ui.settingsSheetClose.addEventListener("click", closeSettingsSheet);
+  if (ui.settingsSheetBackdrop) {
+    ui.settingsSheetBackdrop.addEventListener("click", closeSettingsSheet);
+  }
+  if (ui.btnSfxMute) {
+    ui.btnSfxMute.addEventListener("click", () => {
+      const Audio = window.FouncyAudio;
+      if (!Audio || typeof Audio.setMuted !== "function") return;
+      Audio.unlock && Audio.unlock();
+      Audio.setMuted(!Audio.isMuted());
+      syncSettingsUi();
+    });
+  }
+  if (ui.sfxVolSlider) {
+    ui.sfxVolSlider.addEventListener("input", () => {
+      const Audio = window.FouncyAudio;
+      if (!Audio || typeof Audio.setVolume !== "function") return;
+      Audio.unlock && Audio.unlock();
+      const pct = Number(ui.sfxVolSlider.value) || 0;
+      Audio.setVolume(pct / 100);
+      if (pct > 0 && Audio.isMuted && Audio.isMuted()) Audio.setMuted(false);
+      syncSettingsUi();
+    });
+  }
+  if (ui.exitConfirmCancel) ui.exitConfirmCancel.addEventListener("click", closeExitConfirm);
+  if (ui.exitConfirmBackdrop) {
+    ui.exitConfirmBackdrop.addEventListener("click", closeExitConfirm);
+  }
+  if (ui.exitConfirmOk) ui.exitConfirmOk.addEventListener("click", leaveMatchConfirmed);
 
   if (ui.btnCreateRoom) ui.btnCreateRoom.addEventListener("click", () => createOnlineRoom());
   if (ui.btnJoinRoom) ui.btnJoinRoom.addEventListener("click", () => joinOnlineRoom());
@@ -2824,28 +3050,11 @@
     });
   }
 
-  ui.btnExit.addEventListener("click", () => {
-    // 新手中：退出 = 重试当前关，不能回大厅
-    if (!isTutorialDone() && tutorialActiveLevel) {
-      const lv = getTutorialLevelById(tutorialActiveLevel) || getNextTutorialLevel();
-      if (lv) {
-        startTrainingLevel(lv, { fromTutorial: true });
-        return;
-      }
-    }
-    if (window.FouncyBall) window.FouncyBall.stop();
-    clearRankedSession();
-    online.matchStarted = false;
-    setChatFabVisible(false);
-    closeChatSheet();
-    if (isOnline() && online.role) {
-      show("online");
-      syncOnlineUi();
-      return;
-    }
-    renderRankHome();
-    show(lobbyReturn === "match" ? "home" : lobbyReturn || "home");
-  });
+  if (ui.btnExit) {
+    ui.btnExit.addEventListener("click", () => {
+      openExitConfirm();
+    });
+  }
 
   if (chatUi.fab) {
     chatUi.fab.addEventListener("click", () => {

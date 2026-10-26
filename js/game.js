@@ -76,8 +76,9 @@
   let viewW = 0;
   let viewH = 0;
 
-  /** 场外视觉边距（米）：露出凹槽围边 / 看台，不影响物理 */
-  const VIEW_PAD_M = 9;
+  /** 场外视觉边距（米）：手机略大、桌面略小，避免球场被“压扁” */
+  const VIEW_PAD_M_MOBILE = 10.2;
+  const VIEW_PAD_M_DESKTOP = 8.2;
 
   const pitchArt = new Image();
   pitchArt.src = "assets/pitch-surround.jpg";
@@ -200,25 +201,30 @@
 
   preloadAvatars();
 
-  /** 球场 + 球门槽外轮廓（屏幕坐标），用于扣洞 / 描边 */
+  /** 球场 + 球门槽外轮廓（屏幕坐标），用于扣洞 / 描边；四角为 45° 切角 */
   function pitchOutlineScreen() {
     const W = PITCH.widthM;
     const L = PITCH.lengthM;
     const D = PITCH.goalDepthM;
+    const C = Math.max(0, PITCH.cornerCutM || 0);
     const { gx0, gx1 } = goalXRange();
     return [
-      worldToScreen(0, 0),
+      worldToScreen(C, 0),
       worldToScreen(gx0, 0),
       worldToScreen(gx0, -D),
       worldToScreen(gx1, -D),
       worldToScreen(gx1, 0),
-      worldToScreen(W, 0),
-      worldToScreen(W, L),
+      worldToScreen(W - C, 0),
+      worldToScreen(W, C),
+      worldToScreen(W, L - C),
+      worldToScreen(W - C, L),
       worldToScreen(gx1, L),
       worldToScreen(gx1, L + D),
       worldToScreen(gx0, L + D),
       worldToScreen(gx0, L),
-      worldToScreen(0, L),
+      worldToScreen(C, L),
+      worldToScreen(0, L - C),
+      worldToScreen(0, C),
     ];
   }
 
@@ -304,6 +310,7 @@
     winScore: WIN_SCORE,
     /** 比赛结束回调 (winner) => void */
     onMatchOver: null,
+    onRematch: null,
     /** 决胜时回调 (winner) => { line?: string } | null —— 排位杯数等 */
     onMatchDecide: null,
     /** 阶段变化回调 (phase) => void */
@@ -526,7 +533,11 @@
         ? 220 + Math.random() * 180
         : 380 + Math.random() * 420;
     aiDelay(thinkMs, () => {
-      if (!state.running || state.phase !== "select" || !isAiTurn()) return;
+      if (!state.running || state.phase !== "select" || !isAiTurn()) {
+        // 回合已切走时必须清掉思考锁，否则人类永远点不动
+        state.aiThinking = false;
+        return;
+      }
       let decision = null;
       try {
         decision = window.FouncyAI.decide({
@@ -586,11 +597,73 @@
           ? 280 + Math.random() * 220
           : 520 + Math.random() * 480;
       aiDelay(aimMs, () => {
-        if (!state.running || state.phase !== "aim" || !isAiTurn()) return;
-        if (!state.selected || state.power < 0.05) return;
+        if (!state.running || state.phase !== "aim" || !isAiTurn()) {
+          state.aiThinking = false;
+          return;
+        }
+        if (!state.selected || state.power < 0.05) {
+          state.aiThinking = false;
+          return;
+        }
         shoot();
       });
     });
+  }
+
+  function releaseAimPointer(pointerId) {
+    const id = pointerId != null ? pointerId : state.primaryPointerId;
+    if (id == null || !canvas) return;
+    try {
+      if (canvas.hasPointerCapture && canvas.hasPointerCapture(id)) {
+        canvas.releasePointerCapture(id);
+      }
+    } catch (_) {
+      /* ignore */
+    }
+  }
+
+  function clearAimInput(pointerId) {
+    releaseAimPointer(pointerId);
+    state.dragging = false;
+    state.dragOrigin = null;
+    state.dragStartClient = null;
+    state.finger = null;
+    state.primaryPointerId = null;
+    state.curvePointerId = null;
+    state.curveFingerClient = null;
+    state.curveTouchOrigin = null;
+    state.curveFromTouch = false;
+    detachWindowAimListeners();
+  }
+
+  let windowAimBound = false;
+  function onWindowAimMove(e) {
+    if (!state.running || state.phase !== "aim") return;
+    if (inputBlocked()) return;
+    if (state.curvePointerId != null && e.pointerId === state.curvePointerId) {
+      updateCurveFromTouch(e.clientX, e.clientY);
+      return;
+    }
+    if (state.dragging && e.pointerId === state.primaryPointerId) {
+      updateDragFromFinger(e.clientX, e.clientY);
+    }
+  }
+  function onWindowAimUp(e) {
+    onPointerUp(e);
+  }
+  function attachWindowAimListeners() {
+    if (windowAimBound) return;
+    windowAimBound = true;
+    window.addEventListener("pointermove", onWindowAimMove, true);
+    window.addEventListener("pointerup", onWindowAimUp, true);
+    window.addEventListener("pointercancel", onWindowAimUp, true);
+  }
+  function detachWindowAimListeners() {
+    if (!windowAimBound) return;
+    windowAimBound = false;
+    window.removeEventListener("pointermove", onWindowAimMove, true);
+    window.removeEventListener("pointerup", onWindowAimUp, true);
+    window.removeEventListener("pointercancel", onWindowAimUp, true);
   }
 
   function cloneBodyForSim(b) {
@@ -633,7 +706,7 @@
 
   /**
    * 静默完整物理仿真一击（不改动真实对局状态）。
-   * @returns {{ scorer: "A"|"B"|null, steps: number, hitBall: boolean, ballX: number, ballY: number } | null}
+   * @returns {{ scorer: "A"|"B"|null, steps: number, hitBall: boolean, wallHits: number, ballPlayerHits: number, bounces: number, ballX: number, ballY: number } | null}
    */
   function evaluateShot(opts) {
     if (!opts || state.simulating || !state.bodies.length) return null;
@@ -714,10 +787,18 @@
         }
 
         const b = ball();
+        const ctx = state.shotCtx;
+        const wallHits = (ctx && ctx.ballWallHits) || 0;
+        const ballPlayerHits = (ctx && ctx.ballPlayerHits) || 0;
+        // 弹射：墙 + 球再碰人（首次触球不计）；供人机判断「简单球」
+        const bounces = wallHits + Math.max(0, ballPlayerHits - 1);
         result = {
           scorer,
           steps,
-          hitBall: !!(state.shotCtx && state.shotCtx.hitBall),
+          hitBall: !!(ctx && ctx.hitBall),
+          wallHits,
+          ballPlayerHits,
+          bounces,
           ballX: b ? b.x : 0,
           ballY: b ? b.y : 0,
         };
@@ -845,9 +926,12 @@
     const team = energyPanelTeam();
     const list = state.bodies.filter((b) => !b.isBall && b.team === team);
     el.energyRows.innerHTML = "";
+    const R = 17;
+    const C = 2 * Math.PI * R;
     for (const b of list) {
       const ready = b.energy >= 1;
-      const pct = Math.round(Math.min(1, b.energy) * 100);
+      const energy01 = Math.min(1, Math.max(0, b.energy));
+      const dash = (energy01 * C).toFixed(2);
       const btn = document.createElement("button");
       btn.type = "button";
       btn.className = "energy-chip";
@@ -855,15 +939,24 @@
       if (b.skillArmed) btn.classList.add("armed");
       if (b.injuredTurns > 0) btn.classList.add("injured");
       btn.dataset.bodyId = b.id;
-      const skillLabel = b.skillArmed
-        ? `已发动·${b.skill.name}`
-        : ready
-          ? b.skill.name
-          : b.skill
-            ? b.skill.name
-            : "";
-      btn.innerHTML = `<div class="ec-top"><span class="ec-name">${b.name}</span><span class="ec-skill">${skillLabel}</span></div><div class="ec-bar"><i style="width:${pct}%"></i></div>`;
-      btn.title = b.skill ? `${b.skill.name}：${b.skill.desc}` : "";
+      const avSrc = `assets/avatars/${b.defId}.webp`;
+      const skillTip = b.skill
+        ? b.skillArmed
+          ? `已发动·${b.skill.name}`
+          : b.skill.name
+        : "";
+      btn.innerHTML =
+        `<span class="ec-orb" aria-hidden="true">` +
+        `<svg class="ec-ring" viewBox="0 0 40 40">` +
+        `<circle class="ec-track" cx="20" cy="20" r="${R}" />` +
+        `<circle class="ec-fill" cx="20" cy="20" r="${R}" ` +
+        `stroke-dasharray="${dash} ${C.toFixed(2)}" transform="rotate(-90 20 20)" />` +
+        `</svg>` +
+        `<img class="ec-face" src="${avSrc}" alt="" draggable="false" />` +
+        `</span>` +
+        `<span class="ec-name">${b.name}</span>` +
+        (skillTip ? `<span class="ec-skill">${skillTip}</span>` : "");
+      btn.title = b.skill ? `${b.skill.name}：${b.skill.desc}` : b.name;
       btn.addEventListener("click", () => toggleSkillArm(b.id));
       el.energyRows.appendChild(btn);
     }
@@ -1468,19 +1561,36 @@
     return state.bodies.find((b) => b.isBall);
   }
 
+  function currentViewPadM() {
+    // 宽屏桌面：少留围边，球场更大、更好操作
+    const wide = window.innerWidth >= 720 || (window.innerHeight >= 820 && window.innerWidth >= 480);
+    return wide ? VIEW_PAD_M_DESKTOP : VIEW_PAD_M_MOBILE;
+  }
+
+  function maxPullPx() {
+    // 随画布缩放：桌面/手机都能拉满，不再写死过短
+    const base = MAX_PULL_PX;
+    const byView = viewW > 0 ? viewW * 0.26 : base;
+    return Math.max(88, Math.min(150, Math.max(base, byView)));
+  }
+
   function resize() {
     const stage = document.getElementById("stage");
-    const rect = stage.getBoundingClientRect();
+    // 用 content box，避开 padding；勿用 getBoundingClientRect（含边框易算错）
+    const availW = Math.max(1, stage.clientWidth);
+    const availH = Math.max(1, stage.clientHeight);
     const dpr = Math.min(window.devicePixelRatio || 1, 2);
+    const padM = currentViewPadM();
 
     // 画面：场外边距 + 上下球门槽 + 球场（边距只用于美术，物理仍在 0..W / 0..L）
-    const worldW = PITCH.widthM + VIEW_PAD_M * 2;
-    const worldH = PITCH.lengthM + PITCH.goalDepthM * 2 + VIEW_PAD_M * 2;
+    const worldW = PITCH.widthM + padM * 2;
+    const worldH = PITCH.lengthM + PITCH.goalDepthM * 2 + padM * 2;
     const aspect = worldW / worldH;
-    let cssW = rect.width;
+    // 等比塞进 stage，禁止宽高被 CSS 分别夹扁
+    let cssW = availW;
     let cssH = cssW / aspect;
-    if (cssH > rect.height) {
-      cssH = rect.height;
+    if (cssH > availH) {
+      cssH = availH;
       cssW = cssH * aspect;
     }
 
@@ -1488,13 +1598,39 @@
     viewH = cssH;
     canvas.style.width = `${cssW}px`;
     canvas.style.height = `${cssH}px`;
+    canvas.style.maxWidth = "none";
+    canvas.style.maxHeight = "none";
     canvas.width = Math.round(cssW * dpr);
     canvas.height = Math.round(cssH * dpr);
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
 
     scale = cssW / worldW;
-    offsetX = VIEW_PAD_M * scale;
-    offsetY = (PITCH.goalDepthM + VIEW_PAD_M) * scale;
+    offsetX = padM * scale;
+    offsetY = (PITCH.goalDepthM + padM) * scale;
+  }
+
+  /** 画布内容区在页面上的原点 + 相对逻辑尺寸的拉伸（正常应为 1） */
+  function canvasPageMap() {
+    const r = canvas.getBoundingClientRect();
+    const st = window.getComputedStyle(canvas);
+    const bl = parseFloat(st.borderLeftWidth) || 0;
+    const bt = parseFloat(st.borderTopWidth) || 0;
+    const br = parseFloat(st.borderRightWidth) || 0;
+    const bb = parseFloat(st.borderBottomWidth) || 0;
+    const pl = parseFloat(st.paddingLeft) || 0;
+    const pt = parseFloat(st.paddingTop) || 0;
+    const pr = parseFloat(st.paddingRight) || 0;
+    const pb = parseFloat(st.paddingBottom) || 0;
+    const left = r.left + bl + pl;
+    const top = r.top + bt + pt;
+    const contentW = Math.max(1, r.width - bl - br - pl - pr);
+    const contentH = Math.max(1, r.height - bt - bb - pt - pb);
+    return {
+      left,
+      top,
+      sx: contentW / Math.max(1, viewW),
+      sy: contentH / Math.max(1, viewH),
+    };
   }
 
   /** 是否需要把球场转 180°，让 viewBottomTeam 出现在屏幕下方 */
@@ -1518,9 +1654,12 @@
   }
 
   function screenToWorld(sx, sy) {
-    const r = canvas.getBoundingClientRect();
-    const vx = (sx - r.left - offsetX) / scale;
-    const vy = (sy - r.top - offsetY) / scale;
+    const m = canvasPageMap();
+    // 先去掉边框/内边距，再按实际显示拉伸还原到逻辑画布坐标
+    const lx = (sx - m.left) / m.sx;
+    const ly = (sy - m.top) / m.sy;
+    const vx = (lx - offsetX) / scale;
+    const vy = (ly - offsetY) / scale;
     return fromViewXY(vx, vy);
   }
 
@@ -1578,11 +1717,11 @@
     syncEnergyDock();
   }
 
-  /** 选中球员圆心 → 浏览器 client 坐标 */
+  /** 选中球员圆心 → 浏览器 client 坐标（含边框/拉伸校正） */
   function bodyCenterClient(b) {
     const s = worldToScreen(b.x, b.y);
-    const rect = canvas.getBoundingClientRect();
-    return { x: rect.left + s.x, y: rect.top + s.y };
+    const m = canvasPageMap();
+    return { x: m.left + s.x * m.sx, y: m.top + s.y * m.sy };
   }
 
   /** 换手到本方可操作时提示（点选棋子不播） */
@@ -1596,6 +1735,7 @@
 
   /** 点选球员并立即开始蓄力拖动（原点锚定球心，相对位移映射到圆心） */
   function beginAimOnPlayer(p, e) {
+    clearAimInput(state.primaryPointerId);
     state.selected = p;
     state.power = 0;
     // 蓝攻上(-y)，红攻下(+y)
@@ -1608,6 +1748,7 @@
     state.primaryPointerId = e.pointerId;
     resetCurveInput();
     setPhase("aim");
+    attachWindowAimListeners();
     try {
       canvas.setPointerCapture(e.pointerId);
     } catch (_) {}
@@ -2035,15 +2176,66 @@
     };
   }
 
+  /** 平面墙：nx,ny 为单位内法线；plane = n·p 在墙面上的值 */
+  function collidePlaneWall(b, nx, ny, plane) {
+    const d = b.x * nx + b.y * ny - plane;
+    if (d >= b.r) return false;
+    const overlap = b.r - d;
+    b.x += nx * overlap;
+    b.y += ny * overlap;
+    const vn = b.vx * nx + b.vy * ny;
+    let impact = 0;
+    if (vn < 0) {
+      b.vx -= (1 + WALL_BOUNCE) * vn * nx;
+      b.vy -= (1 + WALL_BOUNCE) * vn * ny;
+      impact = -vn;
+    }
+    clearBodyCurve(b);
+    maybeImpactSpark(b.x - nx * b.r, b.y - ny * b.r, impact);
+    maybeBallHitSfx(impact);
+    if (b.isBall) noteShotImpact("wall");
+    return true;
+  }
+
+  /** 四角 45° 切角碰撞（仅在对应墙角方区内检测） */
+  function collideCornerCuts(b) {
+    const W = PITCH.widthM;
+    const L = PITCH.lengthM;
+    const C = Math.max(0, PITCH.cornerCutM || 0);
+    if (C <= 0) return;
+    const s = Math.SQRT1_2; // 1/√2
+    const pad = b.r + 0.05;
+    // 左上：x+y=C，内法线 (+,+)
+    if (b.x < C + pad && b.y < C + pad) {
+      collidePlaneWall(b, s, s, C * s);
+    }
+    // 右上：(W-x)+y=C，内法线 (-,+)
+    if (b.x > W - C - pad && b.y < C + pad) {
+      collidePlaneWall(b, -s, s, (C - W) * s);
+    }
+    // 左下：x+(L-y)=C，内法线 (+,-)
+    if (b.x < C + pad && b.y > L - C - pad) {
+      collidePlaneWall(b, s, -s, (C - L) * s);
+    }
+    // 右下：(W-x)+(L-y)=C，内法线 (-,-)
+    if (b.x > W - C - pad && b.y > L - C - pad) {
+      collidePlaneWall(b, -s, -s, (C - W - L) * s);
+    }
+  }
+
   function collideWalls() {
     const W = PITCH.widthM;
     const L = PITCH.lengthM;
     const D = PITCH.goalDepthM;
+    const C = Math.max(0, PITCH.cornerCutM || 0);
     const { gx0, gx1 } = goalXRange();
 
     for (const b of state.bodies) {
-      // 左右边线（场内）
-      if (b.y >= 0 && b.y <= L) {
+      // 45° 桌角优先，避免直角双撞
+      collideCornerCuts(b);
+
+      // 左右边线：切角段之外的竖直墙
+      if (b.y >= C && b.y <= L - C) {
         if (b.x - b.r < 0) {
           const impact = Math.abs(b.vx);
           b.x = b.r;
@@ -2068,8 +2260,8 @@
       const topOpen = inGoalX;
       const botOpen = inGoalX;
 
-      // 上下底线：球门口开放，其余位置反弹
-      if (!topOpen && b.y - b.r < 0) {
+      // 上下底线：球门口开放；切角段由对角墙处理
+      if (!topOpen && b.y - b.r < 0 && b.x >= C && b.x <= W - C) {
         const impact = Math.abs(b.vy);
         b.y = b.r;
         b.vy = Math.abs(b.vy) * WALL_BOUNCE;
@@ -2077,7 +2269,7 @@
         maybeImpactSpark(b.x, 0, impact);
         maybeBallHitSfx(impact);
         if (b.isBall) noteShotImpact("wall");
-      } else if (!botOpen && b.y + b.r > L) {
+      } else if (!botOpen && b.y + b.r > L && b.x >= C && b.x <= W - C) {
         const impact = Math.abs(b.vy);
         b.y = L - b.r;
         b.vy = -Math.abs(b.vy) * WALL_BOUNCE;
@@ -2488,13 +2680,7 @@
       clearBodyCurve(p);
     }
     p.disableCurveShot = false;
-    state.dragging = false;
-    state.dragOrigin = null;
-    state.dragStartClient = null;
-    state.finger = null;
-    state.primaryPointerId = null;
-    state.curvePointerId = null;
-    state.curveFingerClient = null;
+    clearAimInput(state.primaryPointerId);
     setPhase("sim");
   }
 
@@ -2606,19 +2792,16 @@
   }
 
   function cancelAim() {
+    clearAimInput(state.primaryPointerId);
     state.selected = null;
     state.power = 0;
-    state.dragging = false;
-    state.dragOrigin = null;
-    state.dragStartClient = null;
-    state.finger = null;
-    state.primaryPointerId = null;
     resetCurveInput();
     setPhase("select");
   }
 
   function restartMatch() {
     clearAiTimers();
+    clearAimInput(state.primaryPointerId);
     clearFx();
     hideGoalFanfare();
     hideResultScreen();
@@ -2629,11 +2812,6 @@
     state.turn = "A";
     state.selected = null;
     state.power = 0;
-    state.dragging = false;
-    state.dragOrigin = null;
-    state.dragStartClient = null;
-    state.finger = null;
-    state.primaryPointerId = null;
     state.shotCtx = null;
     state.shotReplaySnap = null;
     state.bestHighlight = null;
@@ -2649,6 +2827,13 @@
     resetPositions(false);
     syncEnergyDock();
     setPhase("select");
+    if (typeof state.onRematch === "function") {
+      try {
+        state.onRematch();
+      } catch (err) {
+        console.error("onRematch failed", err);
+      }
+    }
   }
 
   /**
@@ -2669,14 +2854,14 @@
 
     if (dist < 1) {
       state.power = 0;
-      syncUI();
       return;
     }
 
-    state.power = Math.min(dist, MAX_PULL_PX) / MAX_PULL_PX;
+    const pullMax = maxPullPx();
+    state.power = Math.min(dist, pullMax) / pullMax;
     // 往哪边拉，就往反方向弹（含视角翻转）
     state.aim = screenDirToWorldAim(dx, dy);
-    syncUI();
+    // 拖动中不 syncUI：避免每帧重建能量条 DOM 打断指针事件
   }
 
   // ——— 绘制 ———
@@ -2714,7 +2899,7 @@
     const W = PITCH.widthM;
     const L = PITCH.lengthM;
     const D = PITCH.goalDepthM;
-    const pad = VIEW_PAD_M;
+    const pad = currentViewPadM();
     const corners = [
       worldToScreen(-pad, -D - pad),
       worldToScreen(W + pad, -D - pad),
@@ -2752,8 +2937,10 @@
     const W = PITCH.widthM;
     const L = PITCH.lengthM;
     const D = PITCH.goalDepthM;
+    const C = Math.max(0, PITCH.cornerCutM || 0);
     const { gx0, gx1 } = goalXRange();
     const band = Math.max(10, scale * 2.8);
+    const s = Math.SQRT1_2;
 
     ctx.save();
     ctx.beginPath();
@@ -2761,12 +2948,17 @@
     ctx.clip();
 
     const edges = [
-      [worldToScreen(0, 0), worldToScreen(0, L), 1, 0],
-      [worldToScreen(W, 0), worldToScreen(W, L), -1, 0],
-      [worldToScreen(0, 0), worldToScreen(gx0, 0), 0, 1],
-      [worldToScreen(gx1, 0), worldToScreen(W, 0), 0, 1],
-      [worldToScreen(0, L), worldToScreen(gx0, L), 0, -1],
-      [worldToScreen(gx1, L), worldToScreen(W, L), 0, -1],
+      [worldToScreen(0, C), worldToScreen(0, L - C), 1, 0],
+      [worldToScreen(W, C), worldToScreen(W, L - C), -1, 0],
+      [worldToScreen(C, 0), worldToScreen(gx0, 0), 0, 1],
+      [worldToScreen(gx1, 0), worldToScreen(W - C, 0), 0, 1],
+      [worldToScreen(C, L), worldToScreen(gx0, L), 0, -1],
+      [worldToScreen(gx1, L), worldToScreen(W - C, L), 0, -1],
+      // 45° 切角：内法线朝场内
+      [worldToScreen(C, 0), worldToScreen(0, C), s, s],
+      [worldToScreen(W - C, 0), worldToScreen(W, C), -s, s],
+      [worldToScreen(0, L - C), worldToScreen(C, L), s, -s],
+      [worldToScreen(W, L - C), worldToScreen(W - C, L), -s, -s],
       [worldToScreen(gx0, -D), worldToScreen(gx0, 0), 1, 0],
       [worldToScreen(gx1, -D), worldToScreen(gx1, 0), -1, 0],
       [worldToScreen(gx0, L), worldToScreen(gx0, L + D), 1, 0],
@@ -2831,7 +3023,12 @@
       drawPitchArtBackdrop();
     }
 
-    // 可玩区草皮：不透明，只保留程序线
+    // 可玩区草皮：裁到切角轮廓，避免填进桌角外
+    const C = Math.max(0, PITCH.cornerCutM || 0);
+    ctx.save();
+    ctx.beginPath();
+    pathFromPoints(pitchOutlineScreen());
+    ctx.clip();
     const stripes = 12;
     for (let i = 0; i < stripes; i++) {
       const y0 = (L / stripes) * i;
@@ -2839,6 +3036,7 @@
       const base = i % 2 === 0 ? "#3cb86a" : "#34a85c";
       fillWorldQuad(0, y0, W, y1, base);
     }
+    ctx.restore();
 
     drawGoalPocket(gx0, gx1, -D, 0, true);
     drawGoalPocket(gx0, gx1, L, L + D, false);
@@ -2848,10 +3046,14 @@
 
     ctx.strokeStyle = "rgba(255,255,255,0.92)";
     ctx.lineWidth = Math.max(1.5, scale * 0.12);
-    const tl = worldToScreen(0, 0);
-    const tr = worldToScreen(W, 0);
-    const bl = worldToScreen(0, L);
-    const br = worldToScreen(W, L);
+    const tl = worldToScreen(C, 0);
+    const tr = worldToScreen(W - C, 0);
+    const bl = worldToScreen(C, L);
+    const br = worldToScreen(W - C, L);
+    const tlc = worldToScreen(0, C);
+    const trc = worldToScreen(W, C);
+    const blc = worldToScreen(0, L - C);
+    const brc = worldToScreen(W, L - C);
     const tg0 = worldToScreen(gx0, 0);
     const tg1 = worldToScreen(gx1, 0);
     const bg0 = worldToScreen(gx0, L);
@@ -2866,10 +3068,19 @@
     ctx.lineTo(bg0.x, bg0.y);
     ctx.moveTo(bg1.x, bg1.y);
     ctx.lineTo(br.x, br.y);
+    ctx.moveTo(tlc.x, tlc.y);
+    ctx.lineTo(blc.x, blc.y);
+    ctx.moveTo(trc.x, trc.y);
+    ctx.lineTo(brc.x, brc.y);
+    // 45° 桌角
     ctx.moveTo(tl.x, tl.y);
-    ctx.lineTo(bl.x, bl.y);
+    ctx.lineTo(tlc.x, tlc.y);
     ctx.moveTo(tr.x, tr.y);
-    ctx.lineTo(br.x, br.y);
+    ctx.lineTo(trc.x, trc.y);
+    ctx.moveTo(bl.x, bl.y);
+    ctx.lineTo(blc.x, blc.y);
+    ctx.moveTo(br.x, br.y);
+    ctx.lineTo(brc.x, brc.y);
     ctx.stroke();
 
     ctx.strokeStyle = "rgba(255,255,255,0.62)";
@@ -3248,9 +3459,37 @@
       return "first";
     }
 
+    function resolveCornerCuts() {
+      const C = Math.max(0, PITCH.cornerCutM || 0);
+      if (C <= 0) return "none";
+      const s = Math.SQRT1_2;
+      const pad = r + 0.05;
+      const planes = [];
+      if (x < C + pad && y < C + pad) planes.push([s, s, C * s]);
+      if (x > W - C - pad && y < C + pad) planes.push([-s, s, (C - W) * s]);
+      if (x < C + pad && y > L - C - pad) planes.push([s, -s, (C - L) * s]);
+      if (x > W - C - pad && y > L - C - pad) planes.push([-s, -s, (C - W - L) * s]);
+      for (const [nx, ny, plane] of planes) {
+        const d = x * nx + y * ny - plane;
+        if (d >= r) continue;
+        if (bounced) return "second";
+        const overlap = r - d;
+        x += nx * overlap;
+        y += ny * overlap;
+        if (reflectWallNormal(nx, ny)) bounced = true;
+        return "first";
+      }
+      return "none";
+    }
+
     function resolveWalls() {
-      // 左右（场内或球门槽内）
-      if (y >= 0 && y <= L) {
+      const cornerHit = resolveCornerCuts();
+      if (cornerHit !== "none") return cornerHit;
+
+      const C = Math.max(0, PITCH.cornerCutM || 0);
+
+      // 左右（切角段之外）
+      if (y >= C && y <= L - C) {
         if (x - r < 0) {
           if (bounced) return "second";
           x = r;
@@ -3266,13 +3505,13 @@
       }
 
       const inGoalX = x > gx0 && x < gx1;
-      if (!inGoalX && y - r < 0) {
+      if (!inGoalX && y - r < 0 && x >= C && x <= W - C) {
         if (bounced) return "second";
         y = r;
         if (reflectWallNormal(0, 1)) bounced = true;
         return "first";
       }
-      if (!inGoalX && y + r > L) {
+      if (!inGoalX && y + r > L && x >= C && x <= W - C) {
         if (bounced) return "second";
         y = L - r;
         if (reflectWallNormal(0, -1)) bounced = true;
@@ -3422,7 +3661,7 @@
     ctx.stroke();
 
     ctx.beginPath();
-    ctx.arc(sp.x, sp.y, MAX_PULL_PX, 0, Math.PI * 2);
+    ctx.arc(sp.x, sp.y, maxPullPx(), 0, Math.PI * 2);
     ctx.strokeStyle = "rgba(200,245,66,0.16)";
     ctx.lineWidth = 1;
     ctx.stroke();
@@ -3816,7 +4055,7 @@
       state.dragStartClient = { x: e.clientX, y: e.clientY };
       state.finger = { x: c.x, y: c.y };
       state.power = 0;
-      syncUI();
+      attachWindowAimListeners();
       try {
         canvas.setPointerCapture(e.pointerId);
       } catch (_) {}
@@ -3838,8 +4077,19 @@
   }
 
   function onPointerUp(e) {
-    if (!state.running || state.phase !== "aim") return;
-    if (inputBlocked()) return;
+    if (!state.running) {
+      clearAimInput(e && e.pointerId);
+      return;
+    }
+    if (state.phase !== "aim") {
+      clearAimInput(e && e.pointerId);
+      return;
+    }
+    if (inputBlocked()) {
+      // 若卡在 aiThinking，抬手时也清掉蓄力锁，避免下回合点不动
+      clearAimInput(e && e.pointerId);
+      return;
+    }
 
     // 副指抬起：保持当前弧线参数（原点清掉，方便下次重拧）
     if (state.curvePointerId != null && e.pointerId === state.curvePointerId) {
@@ -3858,10 +4108,11 @@
       ? Math.hypot(state.finger.x - state.dragOrigin.x, state.finger.y - state.dragOrigin.y)
       : 0;
 
-    state.dragging = false;
-    state.primaryPointerId = null;
+    const power = state.power;
+    clearAimInput(e.pointerId);
 
-    if (pullDist >= MIN_PULL_PX && state.power > 0.05) {
+    if (pullDist >= MIN_PULL_PX && power > 0.05) {
+      state.power = power;
       shoot();
       return;
     }
@@ -3900,16 +4151,18 @@
     canvas.addEventListener("pointercancel", onPointerUp);
     window.addEventListener("keydown", onKeyDown);
     window.addEventListener("keyup", onKeyUp);
-    el.btnRestart.addEventListener("click", () => {
-      if (!state.running) return;
-      // 联机仅蓝方（房主）可重开，并广播
-      if (state.localTeam && state.localTeam !== "A") return;
-      if (state.onNetEvent) state.onNetEvent({ type: "restart" });
-      hideOverlay();
-      hideGoalFanfare();
-      hideResultScreen();
-      restartMatch();
-    });
+    if (el.btnRestart) {
+      el.btnRestart.addEventListener("click", () => {
+        if (!state.running) return;
+        // 联机仅蓝方（房主）可重开，并广播
+        if (state.localTeam && state.localTeam !== "A") return;
+        if (state.onNetEvent) state.onNetEvent({ type: "restart" });
+        hideOverlay();
+        hideGoalFanfare();
+        hideResultScreen();
+        restartMatch();
+      });
+    }
     if (el.btnOverlay) el.btnOverlay.addEventListener("click", () => hideOverlay());
     if (el.btnResultRematch) {
       el.btnResultRematch.addEventListener("click", () => {
@@ -3973,6 +4226,8 @@
       config && typeof config.onMatchOver === "function" ? config.onMatchOver : null;
     state.onMatchDecide =
       config && typeof config.onMatchDecide === "function" ? config.onMatchDecide : null;
+    state.onRematch =
+      config && typeof config.onRematch === "function" ? config.onRematch : null;
     state.onPhaseChange =
       config && typeof config.onPhaseChange === "function" ? config.onPhaseChange : null;
     state.autoRetryOnFail = !!(config && config.autoRetryOnFail);
@@ -4025,17 +4280,73 @@
       cancelAnimationFrame(rafId);
       rafId = 0;
     }
-    state.dragging = false;
-    state.primaryPointerId = null;
+    clearAimInput(state.primaryPointerId);
+    state.aiThinking = false;
     resetCurveInput();
     if (clearCanvas && ctx) {
       ctx.clearRect(0, 0, viewW || canvas.width, viewH || canvas.height);
     }
   }
 
+  /**
+   * 中途认输：比分强制为己方 0、对方先到分，进结算页（方便展示扣杯文案）。
+   * @returns {boolean} 是否成功进入结算；已在结算/未开战则 false
+   */
+  function forfeitAsLoss() {
+    if (!state.running) return false;
+    if (el.resultScreen && !el.resultScreen.classList.contains("hidden")) return false;
+    if (state.phase === "over" && resultWinner) return false;
+
+    clearAiTimers();
+    clearAimInput(state.primaryPointerId);
+    clearFx();
+    hideGoalFanfare();
+    hideOverlay();
+    hideHighlightBanner();
+    state.aiThinking = false;
+    state.goalSlowLeft = 0;
+    state.highlightSlowLeft = 0;
+    state.pendingScorer = null;
+    state.shotCtx = null;
+    state.dragging = false;
+    freezeAll();
+
+    // 己方：联机=localTeam；人机=非 AI 方；热座默认蓝方认输
+    let myTeam = "A";
+    if (state.localTeam === "A" || state.localTeam === "B") myTeam = state.localTeam;
+    else if (state.aiTeam === "A") myTeam = "B";
+    else if (state.aiTeam === "B") myTeam = "A";
+
+    const winner = myTeam === "A" ? "B" : "A";
+    const need = state.winScore || WIN_SCORE;
+    state.scoreA = winner === "A" ? need : 0;
+    state.scoreB = winner === "B" ? need : 0;
+    if (el.scoreA) el.scoreA.textContent = String(state.scoreA);
+    if (el.scoreB) el.scoreB.textContent = String(state.scoreB);
+
+    setPhase("over");
+
+    let msg = `中途退出 · 判负 ${state.scoreA} : ${state.scoreB}`;
+    if (!state.trainingId && typeof state.onMatchDecide === "function") {
+      try {
+        const info = state.onMatchDecide(winner);
+        if (info && info.line) msg = `${msg}\n${info.line}`;
+      } catch (err) {
+        console.error("onMatchDecide failed", err);
+      }
+    }
+
+    showResultScreen({ winner, msg, forfeit: true });
+    if (el.btnResultRematch && state.trainingId) {
+      el.btnResultRematch.classList.add("hidden");
+    }
+    return true;
+  }
+
   window.FouncyBall = {
     start,
     stop,
+    forfeitAsLoss,
     evaluateShot,
     waitAssets,
     avatarReady,

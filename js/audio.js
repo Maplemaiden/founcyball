@@ -20,8 +20,14 @@
   let volume = 0.85;
 
   const MUTE_KEY = "founcy_sfx_mute_v1";
+  const VOL_KEY = "founcy_sfx_vol_v1";
   try {
     muted = localStorage.getItem(MUTE_KEY) === "1";
+    const savedVol = localStorage.getItem(VOL_KEY);
+    if (savedVol != null && savedVol !== "") {
+      const v = Number(savedVol);
+      if (Number.isFinite(v)) volume = Math.max(0, Math.min(1, v));
+    }
   } catch (_) {
     /* ignore */
   }
@@ -61,6 +67,11 @@
 
   function setVolume(v) {
     volume = Math.max(0, Math.min(1, Number(v) || 0));
+    try {
+      localStorage.setItem(VOL_KEY, String(volume));
+    } catch (_) {
+      /* ignore */
+    }
     if (masterGain && !muted) masterGain.gain.value = volume;
   }
 
@@ -198,6 +209,7 @@
     setMuted,
     setVolume,
     isMuted: () => muted,
+    getVolume: () => volume,
     ready: (id) => !!buffers[id],
   };
 })();

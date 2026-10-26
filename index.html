@@ -68,7 +68,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Nunito:wght@700;800;900&display=swap" rel="stylesheet" />
-  <link rel="stylesheet" href="css/style.css?v=20261023qstad" />
+  <link rel="stylesheet" href="css/style.css?v=20261026run2" />
 </head>
 <body>
   <!-- 放在 #app 外，保证首屏立刻盖住，不依赖后续脚本 -->
@@ -99,7 +99,11 @@
                 </div>
               </div>
             </button>
-            <span class="home-ver">v0.2</span>
+            <button type="button" class="icon-rail-btn" id="btnHomeSettings" aria-label="设置" title="设置">
+              <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true">
+                <path fill="currentColor" d="M19.14 12.94c.04-.31.06-.63.06-.94s-.02-.63-.06-.94l2.03-1.58a.5.5 0 0 0 .12-.64l-1.92-3.32a.5.5 0 0 0-.6-.22l-2.39.96a7.1 7.1 0 0 0-1.63-.94l-.36-2.54A.5.5 0 0 0 13.9 2h-3.8a.5.5 0 0 0-.49.42l-.36 2.54c-.59.24-1.13.55-1.63.94l-2.39-.96a.5.5 0 0 0-.6.22L2.71 8.84a.5.5 0 0 0 .12.64l2.03 1.58c-.04.31-.06.63-.06.94s.02.63.06.94l-2.03 1.58a.5.5 0 0 0-.12.64l1.92 3.32c.14.24.43.34.68.24l2.39-.96c.5.39 1.04.71 1.63.94l.36 2.54c.05.24.25.42.49.42h3.8c.24 0 .44-.18.49-.42l.36-2.54c.59-.24 1.13-.55 1.63-.94l2.39.96c.25.1.54 0 .68-.24l1.92-3.32a.5.5 0 0 0-.12-.64l-2.03-1.58zM12 15.5A3.5 3.5 0 1 1 12 8.5a3.5 3.5 0 0 1 0 7z"/>
+              </svg>
+            </button>
           </header>
 
           <div class="home-stage" id="homeStage">
@@ -107,7 +111,6 @@
               <button type="button" class="home-arena-hero" id="btnArenaHero" aria-label="查看联赛塔">
                 <div class="arena-stad" id="homeArenaThumb" data-arena="dirt" aria-hidden="true"></div>
                 <div class="home-arena-badge" id="homeArenaBadge">泥地联赛</div>
-                <span class="home-arena-tap">浏览联赛塔</span>
               </button>
               <div class="home-cup-strip" id="homeCupStrip" aria-label="冲杯进度">
                 <div class="home-cup-strip-fill" id="homeCupStripFill" style="width: 0%"></div>
@@ -125,10 +128,6 @@
                 <button type="button" class="mode-pill on" data-home-mode="ranked">排位</button>
                 <button type="button" class="mode-pill" data-home-mode="friendly">热座</button>
                 <button type="button" class="mode-pill" data-home-mode="online">联机</button>
-              </div>
-              <div class="diff-toggle" id="diffToggle" role="group" aria-label="电脑难度">
-                <button type="button" class="mode-pill on" data-ai-diff="normal">普通</button>
-                <button type="button" class="mode-pill" data-ai-diff="hard">极难</button>
               </div>
               <button type="button" id="btnBattle" class="btn-battle">开战</button>
             </div>
@@ -316,31 +315,31 @@
       <nav id="appDock" class="app-dock" aria-label="主导航">
         <button type="button" class="dock-item" data-nav="train">
           <span class="dock-ico" aria-hidden="true">
-            <svg viewBox="0 0 24 24" width="22" height="22"><path fill="currentColor" d="M12 3l2.2 4.5 5 .7-3.6 3.5.9 5.2L12 14.8 7.5 17l.9-5.2L4.8 8.2l5-.7L12 3zm-7 16h14v2H5v-2z"/></svg>
+            <img src="assets/ui/dock-train.webp" width="44" height="44" alt="" />
           </span>
           <span class="dock-label">训练</span>
         </button>
         <button type="button" class="dock-item" data-nav="roster">
           <span class="dock-ico" aria-hidden="true">
-            <svg viewBox="0 0 24 24" width="22" height="22"><path fill="currentColor" d="M12 12a4 4 0 1 0-4-4 4 4 0 0 0 4 4zm-7.5 8a5.5 5.5 0 0 1 11 0zm9-8a3.5 3.5 0 1 0-1-6.8 5.5 5.5 0 0 1 0 6.8A3.5 3.5 0 0 0 13.5 12zm1.5 8a5.4 5.4 0 0 1 2.2-4.3A5.5 5.5 0 0 1 22 20z"/></svg>
+            <img src="assets/ui/dock-roster.webp" width="44" height="44" alt="" />
           </span>
           <span class="dock-label">编队</span>
         </button>
         <button type="button" class="dock-item dock-home on" data-nav="home">
-          <span class="dock-home-ring">
-            <span class="dock-home-dot" aria-hidden="true"></span>
+          <span class="dock-ico dock-home-ring" aria-hidden="true">
+            <img src="assets/ui/dock-home.webp" width="42" height="42" alt="" />
           </span>
           <span class="dock-label">主页</span>
         </button>
         <button type="button" class="dock-item" data-nav="skills">
           <span class="dock-ico" aria-hidden="true">
-            <svg viewBox="0 0 24 24" width="22" height="22"><path fill="currentColor" d="M12 2l2.4 4.9 5.4.8-3.9 3.8.9 5.4L12 14.8 7.2 17l.9-5.4L4.2 7.7l5.4-.8L12 2zm-7 18h14v2H5v-2z"/></svg>
+            <img src="assets/ui/dock-skills.webp" width="44" height="44" alt="" />
           </span>
           <span class="dock-label">技能</span>
         </button>
         <button type="button" class="dock-item" data-nav="market">
           <span class="dock-ico" aria-hidden="true">
-            <svg viewBox="0 0 24 24" width="22" height="22"><path fill="currentColor" d="M4 7l2-4h12l2 4v2H4V7zm0 3h16v10H4V10zm3 2v6h2v-6H7zm8 0v6h2v-6h-2z"/></svg>
+            <img src="assets/ui/dock-market.webp" width="44" height="44" alt="" />
           </span>
           <span class="dock-label">市场</span>
         </button>
@@ -368,7 +367,9 @@
     <!-- 对局（无底栏） -->
     <section id="screen-match" class="screen hidden match-screen">
       <header id="hud" class="match-hud">
-        <button type="button" id="btnExitMatch" class="hud-btn" aria-label="退出">退出</button>
+        <div class="hud-left">
+          <button type="button" id="btnTutorReplay" class="hud-btn tutor-replay-btn hidden" aria-label="再看操作">再看</button>
+        </div>
         <div class="hud-center">
           <div class="scoreboard">
             <div class="side side-a">
@@ -382,16 +383,21 @@
             </div>
           </div>
         </div>
-        <div class="hud-right">
-          <button type="button" id="btnTutorReplay" class="hud-btn tutor-replay-btn hidden" aria-label="再看操作">再看</button>
-          <button id="btnRestart" type="button" class="hud-btn" aria-label="重开">重开</button>
+        <div class="hud-rail" aria-label="对局菜单">
+          <button type="button" class="icon-rail-btn" id="btnMatchSettings" aria-label="设置" title="设置">
+            <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true">
+              <path fill="currentColor" d="M19.14 12.94c.04-.31.06-.63.06-.94s-.02-.63-.06-.94l2.03-1.58a.5.5 0 0 0 .12-.64l-1.92-3.32a.5.5 0 0 0-.6-.22l-2.39.96a7.1 7.1 0 0 0-1.63-.94l-.36-2.54A.5.5 0 0 0 13.9 2h-3.8a.5.5 0 0 0-.49.42l-.36 2.54c-.59.24-1.13.55-1.63.94l-2.39-.96a.5.5 0 0 0-.6.22L2.71 8.84a.5.5 0 0 0 .12.64l2.03 1.58c-.04.31-.06.63-.06.94s.02.63.06.94l-2.03 1.58a.5.5 0 0 0-.12.64l1.92 3.32c.14.24.43.34.68.24l2.39-.96c.5.39 1.04.71 1.63.94l.36 2.54c.05.24.25.42.49.42h3.8c.24 0 .44-.18.49-.42l.36-2.54c.59-.24 1.13-.55 1.63-.94l2.39.96c.25.1.54 0 .68-.24l1.92-3.32a.5.5 0 0 0-.12-.64l-2.03-1.58zM12 15.5A3.5 3.5 0 1 1 12 8.5a3.5 3.5 0 0 1 0 7z"/>
+            </svg>
+          </button>
+          <button type="button" class="icon-rail-btn exit" id="btnExitMatch" aria-label="退出对局" title="退出">
+            <img class="exit-ico" src="assets/ui/exit-runner.png?v=1" width="22" height="22" alt="" draggable="false" />
+          </button>
         </div>
       </header>
       <main id="stage">
         <canvas id="game"></canvas>
       </main>
       <aside id="energyDock" class="energy-dock" aria-label="己方能量">
-        <div class="energy-dock-label">能量</div>
         <div id="energyRows" class="energy-rows"></div>
       </aside>
 
@@ -532,6 +538,47 @@
       </div>
     </div>
 
+    <!-- 设置（音效等） -->
+    <div id="settingsSheet" class="founcy-sheet hidden" aria-hidden="true">
+      <button type="button" class="founcy-sheet-backdrop" id="settingsSheetBackdrop" aria-label="关闭"></button>
+      <div class="founcy-sheet-panel" role="dialog" aria-modal="true" aria-labelledby="settingsTitle">
+        <header class="founcy-sheet-head">
+          <h2 id="settingsTitle">设置</h2>
+          <button type="button" class="founcy-sheet-close" id="settingsSheetClose" aria-label="关闭">×</button>
+        </header>
+        <div class="settings-rows">
+          <div class="settings-row">
+            <div class="settings-row-text">
+              <strong>音效</strong>
+              <span>碰撞、进球与界面提示音</span>
+            </div>
+            <button type="button" class="settings-toggle on" id="btnSfxMute" aria-pressed="false" aria-label="音效开关">开</button>
+          </div>
+          <div class="settings-row settings-row-stack">
+            <div class="settings-row-text">
+              <strong>音量</strong>
+              <span id="sfxVolLabel">85%</span>
+            </div>
+            <input type="range" id="sfxVolSlider" class="settings-slider" min="0" max="100" value="85" aria-label="音效音量" />
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 退出对局确认 -->
+    <div id="exitConfirm" class="founcy-modal hidden" aria-hidden="true">
+      <button type="button" class="founcy-modal-backdrop" id="exitConfirmBackdrop" aria-label="取消"></button>
+      <div class="founcy-modal-card" role="dialog" aria-modal="true" aria-labelledby="exitConfirmTitle">
+        <p class="founcy-modal-eyebrow">对局中</p>
+        <h3 id="exitConfirmTitle">确认退出？</h3>
+        <p id="exitConfirmMsg" class="founcy-modal-msg">现在退出将视为本场失败。</p>
+        <div class="founcy-modal-actions">
+          <button type="button" class="founcy-btn ghost" id="exitConfirmCancel">继续比赛</button>
+          <button type="button" class="founcy-btn danger" id="exitConfirmOk">确认退出</button>
+        </div>
+      </div>
+    </div>
+
     <!-- 账号占位（日后接微信登录） -->
     <div id="accountSheet" class="account-sheet hidden" aria-hidden="true">
       <button type="button" class="account-sheet-backdrop" id="accountSheetBackdrop" aria-label="关闭"></button>
@@ -628,15 +675,15 @@
   </div>
 
   <script src="https://unpkg.com/peerjs@1.5.4/dist/peerjs.min.js"></script>
-  <script src="js/data/physics.js?v=20261022avatars"></script>
+  <script src="js/data/physics.js?v=20261026corner"></script>
   <script src="js/data/players.js?v=20261022avatars"></script>
   <script src="js/data/skills.js?v=20261022avatars"></script>
   <script src="js/data/ranks.js?v=20261023tower"></script>
   <script src="js/data/training.js?v=20261022mobile"></script>
-  <script src="js/ai.js?v=20261022avatars"></script>
-  <script src="js/audio.js?v=20261024stop"></script>
-  <script src="js/game.js?v=20261024stop"></script>
+  <script src="js/ai.js?v=20261026pick"></script>
+  <script src="js/audio.js?v=20261026set"></script>
+  <script src="js/game.js?v=20261026ff"></script>
   <script src="js/net.js?v=20261022avatars"></script>
-  <script src="js/app.js?v=20261023stadimg"></script>
+  <script src="js/app.js?v=20261026ff"></script>
 </body>
 </html>
